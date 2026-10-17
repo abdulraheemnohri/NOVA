@@ -38,6 +38,11 @@ def db():
         steps_json TEXT NOT NULL, results_json TEXT NOT NULL, error TEXT,
         created_at TEXT NOT NULL, finished_at TEXT,
         FOREIGN KEY(skill_id) REFERENCES self_skills(id))""")
+    run_columns = {str(row[1]) for row in con.execute("PRAGMA table_info(self_skill_runs)").fetchall()}
+    if "current_step" not in run_columns:
+        con.execute("ALTER TABLE self_skill_runs ADD COLUMN current_step INTEGER NOT NULL DEFAULT 0")
+    if "cancel_requested" not in run_columns:
+        con.execute("ALTER TABLE self_skill_runs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0")
     con.execute("""CREATE TABLE IF NOT EXISTS self_workflows(
         id TEXT PRIMARY KEY, skill_id TEXT NOT NULL, name TEXT NOT NULL,
         steps_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
@@ -262,6 +267,25 @@ def list_skill_runs(skill_id: str):
         con.close()
 
 
+@router.post("/skills/{skill_id}/runs/{run_id}/cancel")
+def cancel_skill_run(skill_id: str, run_id: str):
+    con = db()
+    try:
+        row = con.execute("SELECT status,cancel_requested FROM self_skill_runs WHERE id=? AND skill_id=?", (run_id, skill_id)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Skill run not found.")
+        if row["status"] != "running":
+            raise HTTPException(409, "Only a running skill execution can be cancelled.")
+        if not row["cancel_requested"]:
+            con.execute("UPDATE self_skill_runs SET cancel_requested=1 WHERE id=? AND skill_id=? AND status='running'", (run_id, skill_id))
+            con.commit()
+    finally:
+        con.close()
+    append_audit(settings.audit_path, "self.skill.cancel_requested", {"skill_id": skill_id, "run_id": run_id})
+    return {"run_id": run_id, "skill_id": skill_id, "status": "cancel_requested", "cancel_requested": True,
+            "message": "Cancellation is checked between steps; an already-running safe step may finish."}
+
+
 @router.post("/skills/{skill_id}/run", status_code=201)
 def run_skill(skill_id: str, req: SkillRunRequest):
     # Validate the entire structured plan before running any step. Only safe
@@ -289,34 +313,54 @@ def run_skill(skill_id: str, req: SkillRunRequest):
         con.close()
     results = []
     try:
-        for step in planned:
+        for index, step in enumerate(planned):
+            con = db()
+            try:
+                run_state = con.execute("SELECT status,cancel_requested FROM self_skill_runs WHERE id=?", (run_id,)).fetchone()
+            finally:
+                con.close()
+            if run_state is None or run_state["status"] != "running" or run_state["cancel_requested"]:
+                break
             if step["tool"] == "calculator":
                 result = {"result": calculator(step["input"]["expression"])}
             else:
                 result = search_knowledge(SearchRequest(query=step["input"]["query"], limit=5))
             results.append({"tool": step["tool"], "result": result})
+            # Commit each completed step so a process interruption leaves an inspectable checkpoint.
+            con = db()
+            try:
+                con.execute("UPDATE self_skill_runs SET results_json=?,current_step=? WHERE id=? AND status='running'",
+                    (json.dumps(results, ensure_ascii=False, default=str), index + 1, run_id))
+                con.commit()
+            finally:
+                con.close()
         finished = now()
         con = db()
         try:
-            con.execute(
-                "UPDATE self_skill_runs SET status='succeeded',results_json=?,finished_at=? WHERE id=? AND status='running'",
-                (json.dumps(results, ensure_ascii=False, default=str), finished, run_id),
-            )
+            state = con.execute("SELECT cancel_requested FROM self_skill_runs WHERE id=?", (run_id,)).fetchone()
+            cancelled = bool(state and state["cancel_requested"])
+            final_status = "cancelled" if cancelled else "succeeded"
+            con.execute("UPDATE self_skill_runs SET status=?,results_json=?,current_step=?,finished_at=? WHERE id=? AND status='running'",
+                (final_status, json.dumps(results, ensure_ascii=False, default=str), len(results), finished, run_id))
             con.commit()
         finally:
             con.close()
-        append_audit(settings.audit_path, "self.skill.run_succeeded", {
-            "run_id": run_id, "skill_id": skill_id, "skill_version": skill["version"],
-            "step_count": len(planned), "tools": [step["tool"] for step in planned],
-        })
-        return {"run_id": run_id, "skill_id": skill_id, "status": "succeeded", "results": results}
+        if cancelled:
+            append_audit(settings.audit_path, "self.skill.run_cancelled", {"run_id": run_id, "skill_id": skill_id, "completed_steps": len(results)})
+        else:
+            append_audit(settings.audit_path, "self.skill.run_succeeded", {
+                "run_id": run_id, "skill_id": skill_id, "skill_version": skill["version"],
+                "step_count": len(planned), "tools": [step["tool"] for step in planned],
+            })
+        return {"run_id": run_id, "skill_id": skill_id, "status": final_status,
+                "cancelled": cancelled, "current_step": len(results), "results": results}
     except Exception as exc:
         finished = now()
         con = db()
         try:
             con.execute(
-                "UPDATE self_skill_runs SET status='failed',results_json=?,error=?,finished_at=? WHERE id=? AND status='running'",
-                (json.dumps(results, ensure_ascii=False, default=str), str(exc)[:500], finished, run_id),
+                "UPDATE self_skill_runs SET status='failed',results_json=?,current_step=?,error=?,finished_at=? WHERE id=? AND status='running'",
+                (json.dumps(results, ensure_ascii=False, default=str), len(results), str(exc)[:500], finished, run_id),
             )
             con.commit()
         finally:
