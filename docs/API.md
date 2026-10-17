@@ -41,3 +41,7 @@ A workspace rollback is a high-risk action. Create an approval with action `roll
 - `GET /settings/preferences`: read locally persisted workbench preferences.
 - `PUT /settings/preferences`: validate and persist `chat_max_tokens` (64–4096), `auto_refresh_seconds` (0–300; 0 disables polling), and `confirm_model_selection` (boolean). Unknown fields are rejected.
 - Preference changes are stored in the local SQLite settings table and appended to the audit chain. These preferences cannot change the inference runtime, network binding, tool allowlist, or weaken approval policy.
+
+
+## Chat retrieval and source metadata
+`POST /chat` performs local keyword retrieval against indexed document chunks before inference. When matches exist, bounded excerpts are included in the prompt with an explicit untrusted-data warning; the response returns a separate `sources` array containing document/chunk IDs and lexical overlap scores. Scores are not calibrated confidence values, and this is not semantic/vector RAG. The model can still make unsupported claims; inspect source excerpts before relying on an answer.

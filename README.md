@@ -44,6 +44,10 @@ Optional settings: `NOVA_HUGGINGFACE_CACHE_DIR`, `NOVA_HUGGINGFACE_MAX_DOWNLOAD_
 
 NOVA never falls back to Ollama, llama.cpp, or cloud providers. The default endpoint is `http://127.0.0.1:9379/v1`; override it with `NOVA_LITERT_BASE_URL` if the local server uses another loopback port. Start the local server with the command supported by your installed LiteRT-LM version. Confirm its CLI options against that version; NOVA does not automatically install or launch an inference server.
 
+## Local knowledge-assisted chat
+
+Chat performs a bounded local keyword search over indexed document chunks and returns the matching source names/chunk IDs alongside the answer. Retrieved document text is labeled as untrusted reference material. This is lexical retrieval, not semantic vector search, and the model may still generate unsupported claims; review source metadata before relying on results.
+
 ## Task planner and queue
 
 The Tasks page stores local operator-authored tasks, plan steps, priority, optional timezone-aware due times, status transitions, attempt counts and results in SQLite. Every create/status/delete event is audit logged. The queue does not execute shell commands or model-generated plans, and due times are not scheduled until a dedicated worker is implemented. See `docs/TASKS_API.md`.

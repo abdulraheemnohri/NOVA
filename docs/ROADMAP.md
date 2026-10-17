@@ -8,6 +8,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Local bearer-token authentication, default-deny tool policy, approval-gated workspace writes and snapshot rollback.
 - SQLite model registry, curated catalog/device tiers, SHA-256 artifact validation, optional Hugging Face metadata/artifact import.
 - Local document import/search, goals, memory, approvals, audit verification, snapshots and rollback UI.
+- Chat-time local lexical retrieval with bounded reference excerpts, source/chunk metadata returned separately, UI source disclosure, and prompt text marking document content as untrusted; semantic embeddings/vector search remain planned.
 - Persistent task queue API and UI with explicit lifecycle transitions, priority, timezone-aware due times, plan steps, result, attempts and audit records.
 - Lease-based local scheduler with opt-in background worker, recovery after expired leases, bounded retry metadata, due-task priority ordering, audit events, and Scheduler UI. It only moves due tasks to Planned for human review; it never executes commands or model-generated plans.
 - Read-only runtime diagnostics API/UI for LiteRT-LM endpoint status, model IDs, configured-model presence, CLI discovery, host details and audit integrity.
