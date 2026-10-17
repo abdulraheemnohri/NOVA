@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     litert_model: str = "local-model"
     huggingface_cache_dir: Path = Path("./data/models/huggingface")
     huggingface_max_download_bytes: int = 2000000000
+    huggingface_token: str = ""
     require_approval_for_writes: bool = True
 
 settings = Settings()
