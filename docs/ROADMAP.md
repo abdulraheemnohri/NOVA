@@ -20,7 +20,12 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Runtime Manager UI for engine discovery, transcription, speech synthesis and local audio playback. ONNX/TFLite model execution and llama.cpp chat fallback remain disabled.
 
 - Startup recovery marks abandoned autonomous runs as `interrupted`, preserves the last checkpoint and audit trail, and deliberately does not replay side effects automatically. Interrupted runs can request a fresh validated plan for operator review without executing tools.
-- Autonomous planner now preflights every proposed step and exact tool input schema before any execution; invalid arithmetic, unexpected fields, unsupported tools, overlong inputs, and malformed reasons reject the whole plan before partial execution. Operators can request cancellation of a running workflow; cancellation is persisted and observed between tool steps, with a terminal cancelled state and audit event.\n\n## Newly implemented hardening
+- Autonomous planner now preflights every proposed step and exact tool input schema before any execution; invalid arithmetic, unexpected fields, unsupported tools, overlong inputs, and malformed reasons reject the whole plan before partial execution. Operators can request cancellation of a running workflow; cancellation is persisted and observed between tool steps, with a terminal cancelled state and audit event.\n\n## Newly implemented self-improvement foundation
+- Persisted self-created skills with bounded Markdown instructions, tags, draft-by-default lifecycle, explicit activation, versioning, and audit events.
+- Self-created tool proposals are declarative only: proposals must map exactly to existing bounded calculator or local knowledge-search primitives and their fixed input schemas. Proposals require a separate review transition; generated code is never executed and model output cannot register a new runtime capability.
+- API endpoints are under `/api/self/skills` and `/api/self/tools`; user-interface management and controlled skill execution remain follow-up work.
+
+## Newly implemented hardening
 - Process-local API request rate limiting and a separate failed-authentication budget, with basic response security headers. This is single-process defense in depth, not multi-user RBAC or an edge limiter.
 
 ## Remaining work (not yet complete)
