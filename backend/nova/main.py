@@ -116,12 +116,21 @@ def _audit(event: str, details: dict[str, Any]):
 def _safe_path(relative: str) -> Path:
     # Reject absolute paths and traversal before resolving symlinks.
     candidate = Path(relative)
-    if candidate.is_absolute() or any(part == ".." for part in candidate.parts):
+    if candidate.is_absolute() or any(part in {"..", ""} for part in candidate.parts):
         raise HTTPException(403, "Path must be relative and remain inside the workspace.")
     # Snapshot backups are internal recovery state, never ordinary user workspace files.
     if candidate.parts and candidate.parts[0] == ".nova-snapshots":
         raise HTTPException(403, "The internal snapshot store is reserved and cannot be accessed as a workspace path.")
     root = settings.workspace.resolve()
+    # Do not follow user-controlled symlinks, even if their current destination is
+    # still inside the workspace. This reduces symlink escape and aliasing risks.
+    # A production multi-user deployment should additionally use dirfd/openat-style
+    # operations to eliminate races between validation and filesystem mutation.
+    cursor = root
+    for part in candidate.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise HTTPException(403, "Workspace paths must not contain symbolic links.")
     target = (root / candidate).resolve()
     if target == root or root not in target.parents:
         raise HTTPException(403, "Path escapes workspace.")
@@ -450,3 +459,4 @@ def get_settings():
         "huggingface_max_download_bytes": settings.huggingface_max_download_bytes,
         "huggingface_token_configured": bool(settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()),
     }
+
