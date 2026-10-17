@@ -60,3 +60,24 @@ def test_duplicate_document_import_returns_consistent_metadata(tmp_path, monkeyp
     assert second["source_name"] == "manual.txt"
     assert second["chunks"] == first["chunks"]
     assert second["retrieval"] == "local keyword search; no embeddings"
+
+
+def test_binary_document_extraction_rejects_unsupported_and_oversized_inputs():
+    import pytest
+    from fastapi import HTTPException
+    from nova.knowledge import extract_document_text, MAX_DOCUMENT_UPLOAD_BYTES
+    with pytest.raises(HTTPException) as unsupported:
+        extract_document_text("archive.zip", b"data")
+    assert unsupported.value.status_code == 415
+    with pytest.raises(HTTPException) as oversized:
+        extract_document_text("scan.pdf", b"x" * (MAX_DOCUMENT_UPLOAD_BYTES + 1))
+    assert oversized.value.status_code == 413
+
+
+def test_docx_extraction_rejects_invalid_archive():
+    import pytest
+    from fastapi import HTTPException
+    from nova.knowledge import extract_document_text
+    with pytest.raises(HTTPException) as invalid:
+        extract_document_text("report.docx", b"not-a-zip")
+    assert invalid.value.status_code == 422

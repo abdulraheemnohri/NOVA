@@ -5,3 +5,6 @@ onnxruntime>=1.18,<2
 # Optional document/image utilities for future OCR and ingestion adapters:
 Pillow>=10,<13
 pypdf>=5,<7
+
+# Optional DOCX text extraction; documents are parsed locally and never executed.
+python-docx>=1.1,<2

@@ -3,10 +3,10 @@
 Retrieval is deterministic local keyword search in this phase; it does not claim
 semantic/vector retrieval until a verified local embedding adapter is implemented.
 """
-import hashlib, html, json, re, sqlite3, uuid
+import hashlib, html, io, json, re, sqlite3, uuid, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from nova.config import settings
 from nova.audit import append_audit
@@ -28,8 +28,8 @@ def _audit(event, details):
     append_audit(settings.audit_path,event,details)
 def _clean_text(source_name:str, content:str)->str:
     suffix=Path(source_name).suffix.lower()
-    if suffix not in {".txt",".md",".markdown",".csv",".json",".html",".htm"}:
-        raise HTTPException(415,"This phase supports TXT, Markdown, CSV, JSON, and HTML text only.")
+    if suffix not in {".txt",".md",".markdown",".csv",".json",".html",".htm",".pdf",".docx"}:
+        raise HTTPException(415,"Supported formats: TXT, Markdown, CSV, JSON, HTML, PDF and DOCX.")
     if suffix in {".html",".htm"}:
         content=re.sub(r"(?is)<(script|style).*?>.*?</\1>"," ",content)
         content=re.sub(r"(?s)<[^>]+>"," ",content)
@@ -43,6 +43,96 @@ def _chunks(text:str, size:int=1200, overlap:int=150)->list[str]:
         if end==len(text): break
         start=end-overlap
     return result
+
+MAX_DOCUMENT_UPLOAD_BYTES = 20_000_000
+MAX_EXTRACTED_TEXT_CHARS = 2_000_000
+
+
+def extract_document_text(filename: str, data: bytes) -> str:
+    """Extract inert text from bounded PDF/DOCX bytes; never execute embedded content."""
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".pdf", ".docx"}:
+        raise HTTPException(415, "Binary upload endpoint accepts PDF or DOCX only.")
+    if not data or len(data) > MAX_DOCUMENT_UPLOAD_BYTES:
+        raise HTTPException(413, "Document must be non-empty and no larger than 20 MB.")
+    if suffix == ".pdf":
+        try:
+            from pypdf import PdfReader
+        except ImportError as exc:
+            raise HTTPException(503, "PDF extraction requires the optional pypdf dependency.") from exc
+        try:
+            reader = PdfReader(io.BytesIO(data), strict=True)
+            if reader.is_encrypted:
+                raise HTTPException(422, "Encrypted PDFs are not supported.")
+            if len(reader.pages) > 500:
+                raise HTTPException(413, "PDF exceeds the 500-page extraction limit.")
+            parts = []
+            total = 0
+            for page in reader.pages:
+                page_text = page.extract_text() or ""
+                total += len(page_text)
+                if total > MAX_EXTRACTED_TEXT_CHARS:
+                    raise HTTPException(413, "Extracted text exceeds the 2 MB text limit.")
+                parts.append(page_text)
+            extracted = "\n".join(parts)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(422, "PDF could not be parsed as a valid document.") from exc
+    else:
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                infos = archive.infolist()
+                if len(infos) > 2000 or sum(item.file_size for item in infos) > 50_000_000:
+                    raise HTTPException(413, "DOCX archive exceeds safe extraction limits.")
+                for item in infos:
+                    member = item.filename.replace("\\", "/")
+                    if member.startswith("/") or any(part == ".." for part in member.split("/")):
+                        raise HTTPException(422, "DOCX contains an unsafe archive path.")
+                    if "vbaproject" in member.lower():
+                        raise HTTPException(415, "Macro-enabled documents are not supported.")
+                if "word/document.xml" not in {item.filename for item in infos}:
+                    raise HTTPException(422, "DOCX is missing its main document body.")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(422, "DOCX could not be parsed as a valid archive.") from exc
+        try:
+            from docx import Document
+        except ImportError as exc:
+            raise HTTPException(503, "DOCX extraction requires the optional python-docx dependency.") from exc
+        try:
+            document = Document(io.BytesIO(data))
+            parts = [paragraph.text for paragraph in document.paragraphs if paragraph.text]
+            for table in document.tables:
+                for row in table.rows:
+                    parts.append(" | ".join(cell.text for cell in row.cells))
+            extracted = "\n".join(parts)
+        except Exception as exc:
+            raise HTTPException(422, "DOCX could not be parsed as a valid document.") from exc
+    if len(extracted) > MAX_EXTRACTED_TEXT_CHARS:
+        raise HTTPException(413, "Extracted text exceeds the 2 MB text limit.")
+    return re.sub(r"\s+", " ", extracted).strip()
+
+
+@router.post("/documents/import-file")
+async def import_document_file(file: UploadFile = File(...)):
+    filename = Path(file.filename or "upload").name
+    if not filename or filename in {".", ".."}:
+        raise HTTPException(422, "A valid local filename is required.")
+    data = await file.read(MAX_DOCUMENT_UPLOAD_BYTES + 1)
+    if len(data) > MAX_DOCUMENT_UPLOAD_BYTES:
+        raise HTTPException(413, "Upload exceeds the 20 MB limit.")
+    extracted = extract_document_text(filename, data)
+    if not extracted:
+        raise HTTPException(422, "Document contains no extractable text. Scanned PDFs need a local OCR adapter.")
+    result = import_document(DocumentImport(source_name=filename, content=extracted))
+    _audit("document.file_extracted", {
+        "document_id": result["id"], "source_name": filename,
+        "file_sha256": hashlib.sha256(data).hexdigest(), "extracted_chars": len(extracted),
+    })
+    return {**result, "extracted_chars": len(extracted), "extraction": "local text extraction; no OCR"}
+
 class DocumentImport(BaseModel):
     source_name:str=Field(min_length=1,max_length=250)
     content:str=Field(min_length=1,max_length=2_000_000)
