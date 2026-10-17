@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = False
     scheduler_interval_seconds: int = Field(default=15, ge=5, le=3600)
     tesseract_cli_path: str = ""
+    pdf_ocr_enabled: bool = False
+    pdf_renderer_cli_path: str = ""
+    pdf_ocr_max_pages: int = Field(default=10, ge=1, le=50)
+    pdf_ocr_timeout_seconds: int = Field(default=180, ge=10, le=600)
     ocr_timeout_seconds: int = Field(default=60, ge=5, le=180)
     ocr_max_upload_bytes: int = Field(default=15000000, ge=1024, le=25000000)
 
