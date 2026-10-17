@@ -39,7 +39,7 @@ class DownloadRequest(BaseModel):
 
 def _token() -> str:
     # Optional token is read from the environment only; it is never returned to the UI.
-    return os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()
+    return (settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "")).strip()
 
 
 def _request(url: str, *, timeout: int = 20):
