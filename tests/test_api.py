@@ -196,3 +196,18 @@ def test_workspace_write_cannot_target_internal_snapshot_store(monkeypatch, tmp_
             json={"relative_path": ".nova-snapshots/forged.bak", "content": "tampered"},
         )
     assert response.status_code == 403
+
+
+def test_corrupt_audit_chain_disables_api_actions_but_allows_diagnostics(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        settings.audit_path.write_text('{"malformed":\n', encoding="utf-8")
+        blocked = client.post(
+            "/api/approvals",
+            json={"action": "workspace_write", "payload": {}, "reason": "should be blocked"},
+        )
+        assert blocked.status_code == 503
+        assert "Audit integrity failure" in blocked.json()["detail"]
+        diagnostic = client.get("/api/audit/verify")
+        assert diagnostic.status_code == 200
+        assert diagnostic.json() == {"valid": False, "events_verified": 0}
