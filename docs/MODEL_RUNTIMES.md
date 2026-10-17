@@ -47,7 +47,7 @@ NOVA_WHISPER_TIMEOUT_SECONDS=180
 NOVA_WHISPER_MAX_UPLOAD_BYTES=25000000
 ```
 
-Restart the backend, open **Runtimes**, and check that both the executable and model artifact are detected. The endpoint `POST /api/runtimes/whisper/transcribe` accepts a multipart field named `file`, requires a `.wav` RIFF/WAVE file, limits upload size and runtime duration, and returns a transcript. The current adapter expects WAV; use a trusted local converter to prepare 16 kHz mono 16-bit PCM WAV from other formats. It does not download models, execute a shell, or send audio to a remote service.
+Restart the backend, open **Runtimes**, and check that both the executable and model artifact are detected. The endpoint `POST /api/runtimes/whisper/transcribe` accepts a multipart field named `file`, requires a `.wav` RIFF/WAVE file, limits upload size and runtime duration, and returns a transcript. The adapter accepts WAV directly and supports MP3, M4A, FLAC, OGG, WebM, AAC and MP4 through an explicitly installed local FFmpeg executable. Set `NOVA_FFMPEG_CLI_PATH` if it is not on PATH. Converted files are normalized to 16 kHz mono signed 16-bit PCM WAV with `shell=False`, bounded size/time, and temporary workspace-local files. No audio is sent to a remote service.
 
 ## Piper TTS
 
