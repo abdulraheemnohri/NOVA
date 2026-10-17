@@ -66,3 +66,10 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - `GET /self/workflows` lists up to 200 saved workflows.
 - `POST /self/workflows` stores a named ordered plan bound to an active skill. Request shape: `{ "skill_id": "...", "name": "Research arithmetic", "steps": [{"tool":"calculator","input":{"expression":"6 * 7"}}] }`.
 - `POST /self/workflows/{workflow_id}/run` reruns a saved plan through the same whole-plan preflight and existing safe primitive allowlist. Execution records remain available through the skill's run-history endpoint. Saved plans are persisted in SQLite and creation/execution are audited.
+
+
+## Checkpointed skill and workflow execution
+- Each controlled skill run persists completed step results and a current_step checkpoint after every safe primitive.
+- POST /self/skills/{skill_id}/runs/{run_id}/cancel requests cooperative cancellation for a currently running execution. Cancellation is checked between steps; a step already executing may finish.
+- GET /self/skills/{skill_id}/runs exposes status, completed results, checkpoint, and cancellation flag. Cancelled runs retain completed results for inspection and are not automatically replayed.
+- Only the existing calculator and local knowledge-search primitives are allowed; whole-plan preflight remains mandatory. A checkpoint is progress evidence, not an instruction to replay side effects.

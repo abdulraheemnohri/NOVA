@@ -130,3 +130,49 @@ def test_workflow_preflights_unsupported_tool(isolated_store):
             steps=[module.SkillStep(tool="shell", input={"command": "id"})],
         ))
     assert error.value.status_code == 422
+
+
+def test_skill_run_persists_each_checkpoint_and_can_be_cancelled(isolated_store, monkeypatch):
+    import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Checkpoint Skill", description="Persist execution checkpoints",
+        instructions="Run explicit bounded arithmetic steps and keep durable progress.",
+    ))
+    activate_skill(created["id"])
+    original_calculator = module.calculator
+    requested = []
+    def cancel_after_first_step(expression):
+        result = original_calculator(expression)
+        con = module.db()
+        try:
+            run = con.execute("SELECT id FROM self_skill_runs WHERE skill_id=? AND status='running'", (created["id"],)).fetchone()
+        finally:
+            con.close()
+        requested.append(module.cancel_skill_run(created["id"], run["id"]))
+        return result
+    monkeypatch.setattr(module, "calculator", cancel_after_first_step)
+    result = module.run_skill(created["id"], module.SkillRunRequest(steps=[
+        module.SkillStep(tool="calculator", input={"expression": "6 * 7"}),
+        module.SkillStep(tool="calculator", input={"expression": "10 + 5"}),
+    ]))
+    assert requested[0]["status"] == "cancel_requested"
+    assert result["status"] == "cancelled"
+    assert result["current_step"] == 1
+    assert len(result["results"]) == 1
+    history = module.list_skill_runs(created["id"])["runs"][0]
+    assert history["status"] == "cancelled"
+    assert history["current_step"] == 1
+    assert history["cancel_requested"] == 1
+    assert len(history["results"]) == 1
+
+
+def test_cancel_requires_matching_running_run(isolated_store):
+    import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Cancel Guard", description="Ensure cancellation is scoped",
+        instructions="Run only validated steps and reject stale cancellation requests.",
+    ))
+    activate_skill(created["id"])
+    with pytest.raises(HTTPException) as error:
+        module.cancel_skill_run(created["id"], "missing-run")
+    assert error.value.status_code == 404
