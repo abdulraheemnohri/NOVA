@@ -71,3 +71,44 @@ def test_huggingface_download_rejects_path_traversal_before_network(monkeypatch,
             "repo_id": "example/model", "filename": "../evil.litertlm",
         })
     assert response.status_code == 422
+
+
+def test_huggingface_download_is_explicit_bounded_and_audited(monkeypatch, tmp_path):
+    payload = b"verified fake litertlm artifact"
+    monkeypatch.setattr(huggingface, "_hub_json", lambda url: {
+        "id": "example/model",
+        "siblings": [{"rfilename": "model.litertlm", "size": len(payload)}],
+    })
+
+    class FakeResponse:
+        headers = {"Content-Length": str(len(payload))}
+
+        def __init__(self):
+            self.remaining = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _size=-1):
+            data, self.remaining = self.remaining, b""
+            return data
+
+    monkeypatch.setattr(huggingface, "_request", lambda *_args, **_kwargs: FakeResponse())
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.post("/api/models/huggingface/download", json={
+            "repo_id": "example/model", "filename": "model.litertlm", "revision": "main",
+        })
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["downloaded"] is True
+        assert data["inference_enabled"] is True
+        artifact = tmp_path / "models" / "example--model" / "main" / "model.litertlm"
+        assert artifact.read_bytes() == payload
+        registered = client.post("/api/models/register", json={
+            "model_id": "hf-test-model", "name": "Downloaded test model", "kind": "chat",
+            "file_path": str(artifact), "format": "litertlm", "sha256": data["sha256"],
+        })
+    assert registered.status_code == 200, registered.text
