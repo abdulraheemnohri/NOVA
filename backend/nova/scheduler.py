@@ -17,6 +17,11 @@ from nova.config import settings
 from nova.tasks import _connect as _tasks_connect
 
 router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
+
+
+class SchedulerConfigUpdate(BaseModel):
+    enabled: bool
+    interval_seconds: int = Field(default=15, ge=5, le=3600)
 MAX_ATTEMPTS = 5
 LEASE_SECONDS = 60
 _worker_lock = threading.Lock()
@@ -40,6 +45,50 @@ def _ensure_columns(con) -> None:
         if name not in existing:
             con.execute(f"ALTER TABLE tasks ADD COLUMN {name} {definition}")
     con.commit()
+
+
+def initialize_scheduler_config() -> None:
+    """Load operator-persisted scheduler settings, falling back to environment defaults."""
+    con = _tasks_connect()
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS nova_settings (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+        )""")
+        rows = {row["key"]: row["value"] for row in con.execute(
+            "SELECT key,value FROM nova_settings WHERE key IN ('scheduler_enabled','scheduler_interval_seconds')"
+        ).fetchall()}
+        con.commit()
+    finally:
+        con.close()
+    if "scheduler_enabled" in rows:
+        settings.scheduler_enabled = rows["scheduler_enabled"] == "true"
+    if "scheduler_interval_seconds" in rows:
+        try:
+            settings.scheduler_interval_seconds = max(5, min(3600, int(rows["scheduler_interval_seconds"])))
+        except ValueError:
+            settings.scheduler_interval_seconds = 15
+
+
+def save_scheduler_config(enabled: bool, interval_seconds: int) -> None:
+    now = _now().isoformat()
+    con = _tasks_connect()
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS nova_settings (
+            key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL
+        )""")
+        con.executemany(
+            """INSERT INTO nova_settings(key,value,updated_at) VALUES(?,?,?)
+               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
+            [
+                ("scheduler_enabled", "true" if enabled else "false", now),
+                ("scheduler_interval_seconds", str(interval_seconds), now),
+            ],
+        )
+        con.commit()
+    finally:
+        con.close()
+    settings.scheduler_enabled = enabled
+    settings.scheduler_interval_seconds = interval_seconds
 
 
 def scheduler_status() -> dict[str, Any]:
@@ -160,6 +209,19 @@ def run_due_tasks(limit: int = 50) -> dict[str, Any]:
 
 @router.get("/status")
 def get_scheduler_status():
+    return scheduler_status()
+
+
+@router.put("/config")
+def update_scheduler_config(req: SchedulerConfigUpdate):
+    save_scheduler_config(req.enabled, req.interval_seconds)
+    if req.enabled:
+        start_worker()
+    else:
+        stop_worker()
+    append_audit(settings.audit_path, "scheduler.config_updated", {
+        "enabled": req.enabled, "interval_seconds": req.interval_seconds,
+    })
     return scheduler_status()
 
 

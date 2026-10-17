@@ -26,7 +26,7 @@ from nova.policy import evaluate_tool
 from nova.tasks import router as tasks_router
 from nova.diagnostics import router as diagnostics_router
 from nova.runtimes import router as runtimes_router
-from nova.scheduler import router as scheduler_router, start_worker, stop_worker
+from nova.scheduler import router as scheduler_router, start_worker, stop_worker, initialize_scheduler_config
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
 
@@ -180,6 +180,7 @@ def startup():
     con = _db()
     con.close()
     initialize_knowledge()
+    initialize_scheduler_config()
     start_worker()
 
 

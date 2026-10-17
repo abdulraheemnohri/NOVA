@@ -14,6 +14,7 @@ def _client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
     monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
     monkeypatch.setattr(settings, "scheduler_enabled", False)
+    monkeypatch.setattr(settings, "scheduler_interval_seconds", 15)
     token_path = tmp_path / "api.token"
     token_path.write_text("scheduler-test-token", encoding="utf-8")
     monkeypatch.setattr(settings, "api_token_file", token_path)
@@ -58,3 +59,24 @@ def test_scheduler_requires_api_token(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as (client, headers):
         response = client.get("/api/scheduler/status")
         assert response.status_code == 401
+
+
+
+def test_scheduler_config_is_validated_and_persisted(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.put("/api/scheduler/config", headers=headers, json={
+            "enabled": False, "interval_seconds": 30
+        })
+        assert response.status_code == 200, response.text
+        assert response.json()["enabled"] is False
+        assert response.json()["interval_seconds"] == 30
+        bad = client.put("/api/scheduler/config", headers=headers, json={
+            "enabled": True, "interval_seconds": 1
+        })
+        assert bad.status_code == 422
+        from nova.scheduler import initialize_scheduler_config
+        monkeypatch.setattr(settings, "scheduler_enabled", True)
+        monkeypatch.setattr(settings, "scheduler_interval_seconds", 10)
+        initialize_scheduler_config()
+        assert settings.scheduler_enabled is False
+        assert settings.scheduler_interval_seconds == 30
