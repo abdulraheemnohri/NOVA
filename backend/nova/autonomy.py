@@ -96,6 +96,17 @@ def run_detail(run_id:str):
  finally:c.close()
  if row is None:raise HTTPException(404,"Autonomy run not found.")
  return run_view(row)
+@router.post("/runs/{run_id}/replan")
+def replan_interrupted_run(run_id:str):
+ """Create a fresh, validated plan for operator review without executing tools."""
+ c=db()
+ try:row=c.execute("SELECT id,goal,status FROM autonomy_runs WHERE id=?",(run_id,)).fetchone()
+ finally:c.close()
+ if row is None:raise HTTPException(404,"Autonomy run not found.")
+ if row["status"]!="interrupted":raise HTTPException(409,"Only an interrupted run can be replanned.")
+ steps=plan(row["goal"],cfg()["max_steps"])
+ append_audit(settings.audit_path,"autonomy.replanned_for_review",{"run_id":run_id,"step_count":len(steps),"execution_started":False})
+ return {"run_id":run_id,"goal":row["goal"],"steps":steps,"execution_started":False,"message":"Fresh plan generated for operator review. No tools were executed."}
 @router.post("/runs/{run_id}/cancel")
 def cancel_run(run_id:str):
  c=db()
