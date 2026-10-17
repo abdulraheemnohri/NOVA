@@ -1,5 +1,5 @@
 import {useEffect,useState, type FormEvent} from "react";
-import {Activity,Bot,BookOpen,CheckCircle2,CircleAlert,FileText,Gauge,LockKeyhole,MessageSquare,Settings2,ShieldCheck,ShieldX,WifiOff,Target,BrainCircuit,Search,Trash2,RefreshCw,Database,ArrowRight,Clock3,Cpu,Mic,Image as ImageIcon,Download,ExternalLink,ClipboardList} from "lucide-react";
+import {Activity,Bot,BookOpen,CheckCircle2,CircleAlert,FileText,Gauge,LockKeyhole,MessageSquare,Settings2,ShieldCheck,ShieldX,WifiOff,Target,BrainCircuit,Search,Trash2,RefreshCw,Database,ArrowRight,Clock3,Cpu,Mic,Image as ImageIcon,Download,ExternalLink,ClipboardList,Wrench} from "lucide-react";
 import {EmptyState,MetricCard,SettingRow,StatusBadge,ActionButton,PageHeader} from "./components/ui";
 import {validateTextImportFile} from "./lib/documentImport";
 import TasksPage from "./pages/TasksPage";
