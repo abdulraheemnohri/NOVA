@@ -56,3 +56,7 @@ A workspace rollback is a high-risk action. Create an approval with action `roll
 ## Controlled skill execution
 - `POST /self/skills/{skill_id}/run` accepts 1–5 structured steps; current primitives are `calculator` (`expression`) and `knowledge_search` (`query`). All steps are preflighted before execution. Only active skills can run.
 - `GET /self/skills/{skill_id}/runs` returns recent persisted run history. Run instructions are not executed as code; the caller supplies structured steps explicitly.
+
+
+## Visual workflow builder
+The Self-Improvement Lab provides an ordered workflow builder for active skills. Operators can compose up to five calculator and local knowledge-search steps, reorder or remove them, then submit the explicit structured plan to the controlled skill-run endpoint. The entire plan is preflighted before execution; arbitrary code, shell, network, and write tools are not available. Workflow definitions in this UI are client-side drafts; execution history is persisted by the backend.
