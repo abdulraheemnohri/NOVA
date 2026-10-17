@@ -211,3 +211,47 @@ def test_corrupt_audit_chain_disables_api_actions_but_allows_diagnostics(monkeyp
         diagnostic = client.get("/api/audit/verify")
         assert diagnostic.status_code == 200
         assert diagnostic.json() == {"valid": False, "events_verified": 0}
+
+
+def test_workspace_write_rejects_symlink_escape(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("must remain unchanged", encoding="utf-8")
+    workspace = settings.workspace
+    workspace.mkdir(parents=True, exist_ok=True)
+    link = workspace / "escape.txt"
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        import pytest
+        pytest.skip("Symlink creation is not supported in this environment")
+    with _client() as client:
+        response = client.post(
+            "/api/workspace/write",
+            json={"relative_path": "escape.txt", "content": "attacker"},
+        )
+    assert response.status_code == 403
+    assert outside.read_text(encoding="utf-8") == "must remain unchanged"
+
+
+def test_workspace_write_rejects_symlinked_parent(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    outside_dir = tmp_path / "outside-dir"
+    outside_dir.mkdir()
+    (outside_dir / "file.txt").write_text("unchanged", encoding="utf-8")
+    workspace = settings.workspace
+    workspace.mkdir(parents=True, exist_ok=True)
+    link = workspace / "linked-dir"
+    try:
+        link.symlink_to(outside_dir, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        import pytest
+        pytest.skip("Symlink creation is not supported in this environment")
+    with _client() as client:
+        response = client.post(
+            "/api/workspace/write",
+            json={"relative_path": "linked-dir/file.txt", "content": "attacker"},
+        )
+    assert response.status_code == 403
+    assert (outside_dir / "file.txt").read_text(encoding="utf-8") == "unchanged"
+
