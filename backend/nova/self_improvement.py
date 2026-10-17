@@ -267,6 +267,41 @@ def list_skill_runs(skill_id: str):
         con.close()
 
 
+@router.post("/skills/{skill_id}/runs/{run_id}/resume", status_code=201)
+def resume_skill_run(skill_id: str, run_id: str):
+    con = db()
+    try:
+        row = con.execute("SELECT * FROM self_skill_runs WHERE id=? AND skill_id=?", (run_id, skill_id)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Skill run not found.")
+        if row["status"] not in {"interrupted", "failed"}:
+            raise HTTPException(409, "Only interrupted or failed runs can be resumed; cancelled runs are not resumed.")
+        planned_raw = json.loads(row["steps_json"])
+        results = json.loads(row["results_json"])
+        checkpoint = int(row["current_step"])
+        if checkpoint < 0 or checkpoint > len(planned_raw) or checkpoint != len(results):
+            raise HTTPException(409, "Saved checkpoint is inconsistent; run cannot be resumed safely.")
+    finally:
+        con.close()
+    # Revalidate the entire saved plan before continuing from its durable checkpoint.
+    planned = [_validate_step(SkillStep(tool=step["tool"], input=step["input"])) for step in planned_raw]
+    con = db()
+    try:
+        cur = con.execute(
+            "UPDATE self_skill_runs SET status='running',cancel_requested=0,error=NULL,finished_at=NULL WHERE id=? AND skill_id=? AND status IN ('interrupted','failed')",
+            (run_id, skill_id),
+        )
+        con.commit()
+    finally:
+        con.close()
+    if cur.rowcount != 1:
+        raise HTTPException(409, "Run state changed; refresh history before resuming.")
+    append_audit(settings.audit_path, "self.skill.run_resumed", {
+        "run_id": run_id, "skill_id": skill_id, "checkpoint_step": checkpoint, "remaining_steps": len(planned) - checkpoint,
+    })
+    return _continue_skill_run(skill_id, run_id, planned, results, checkpoint, 1)
+
+
 @router.post("/skills/{skill_id}/runs/{run_id}/cancel")
 def cancel_skill_run(skill_id: str, run_id: str):
     con = db()
@@ -286,34 +321,10 @@ def cancel_skill_run(skill_id: str, run_id: str):
             "message": "Cancellation is checked between steps; an already-running safe step may finish."}
 
 
-@router.post("/skills/{skill_id}/run", status_code=201)
-def run_skill(skill_id: str, req: SkillRunRequest):
-    # Validate the entire structured plan before running any step. Only safe
-    # read-only primitives are supported; natural-language skill text is not code.
-    planned = [_validate_step(step) for step in req.steps]
-    con = db()
+def _continue_skill_run(skill_id: str, run_id: str, planned: list[dict], results: list, start_index: int, skill_version: int):
     try:
-        skill = con.execute("SELECT id,name,status,version FROM self_skills WHERE id=?", (skill_id,)).fetchone()
-    finally:
-        con.close()
-    if skill is None:
-        raise HTTPException(404, "Skill not found.")
-    if skill["status"] != "active":
-        raise HTTPException(409, "Only active skills can run.")
-    run_id = str(uuid.uuid4())
-    timestamp = now()
-    con = db()
-    try:
-        con.execute(
-            "INSERT INTO self_skill_runs(id,skill_id,status,steps_json,results_json,created_at) VALUES(?,?,'running',?,'[]',?)",
-            (run_id, skill_id, json.dumps(planned), timestamp),
-        )
-        con.commit()
-    finally:
-        con.close()
-    results = []
-    try:
-        for index, step in enumerate(planned):
+        for index in range(start_index, len(planned)):
+            step = planned[index]
             con = db()
             try:
                 run_state = con.execute("SELECT status,cancel_requested FROM self_skill_runs WHERE id=?", (run_id,)).fetchone()
@@ -349,7 +360,7 @@ def run_skill(skill_id: str, req: SkillRunRequest):
             append_audit(settings.audit_path, "self.skill.run_cancelled", {"run_id": run_id, "skill_id": skill_id, "completed_steps": len(results)})
         else:
             append_audit(settings.audit_path, "self.skill.run_succeeded", {
-                "run_id": run_id, "skill_id": skill_id, "skill_version": skill["version"],
+                "run_id": run_id, "skill_id": skill_id, "skill_version": skill_version,
                 "step_count": len(planned), "tools": [step["tool"] for step in planned],
             })
         return {"run_id": run_id, "skill_id": skill_id, "status": final_status,
@@ -358,18 +369,64 @@ def run_skill(skill_id: str, req: SkillRunRequest):
         finished = now()
         con = db()
         try:
-            con.execute(
-                "UPDATE self_skill_runs SET status='failed',results_json=?,current_step=?,error=?,finished_at=? WHERE id=? AND status='running'",
-                (json.dumps(results, ensure_ascii=False, default=str), len(results), str(exc)[:500], finished, run_id),
-            )
+            con.execute("UPDATE self_skill_runs SET status='failed',results_json=?,current_step=?,error=?,finished_at=? WHERE id=? AND status='running'",
+                (json.dumps(results, ensure_ascii=False, default=str), len(results), str(exc)[:500], finished, run_id))
             con.commit()
         finally:
             con.close()
         append_audit(settings.audit_path, "self.skill.run_failed", {
-            "run_id": run_id, "skill_id": skill_id, "completed_steps": len(results),
-            "error_type": type(exc).__name__,
+            "run_id": run_id, "skill_id": skill_id, "completed_steps": len(results), "error_type": type(exc).__name__,
         })
         raise HTTPException(422, "Skill run failed; inspect run history for completed safe steps.") from exc
+
+
+def recover_interrupted_skill_runs():
+    """Mark runs left active by a process restart; keep checkpoints and never replay automatically."""
+    con = db()
+    try:
+        rows = con.execute("SELECT id,skill_id,current_step FROM self_skill_runs WHERE status='running'").fetchall()
+        timestamp = now()
+        for row in rows:
+            con.execute(
+                "UPDATE self_skill_runs SET status='interrupted',error=?,finished_at=? WHERE id=? AND status='running'",
+                ("Interrupted by process restart; checkpoint preserved.", timestamp, row["id"]),
+            )
+        con.commit()
+    finally:
+        con.close()
+    for row in rows:
+        append_audit(settings.audit_path, "self.skill.run_interrupted", {
+            "run_id": row["id"], "skill_id": row["skill_id"], "checkpoint_step": row["current_step"],
+        })
+    return {"interrupted": len(rows), "run_ids": [row["id"] for row in rows]}
+
+
+@router.post("/skills/{skill_id}/run", status_code=201)
+def run_skill(skill_id: str, req: SkillRunRequest):
+    # Validate the entire structured plan before running any step. Only safe
+    # read-only primitives are supported; natural-language skill text is not code.
+    planned = [_validate_step(step) for step in req.steps]
+    con = db()
+    try:
+        skill = con.execute("SELECT id,name,status,version FROM self_skills WHERE id=?", (skill_id,)).fetchone()
+    finally:
+        con.close()
+    if skill is None:
+        raise HTTPException(404, "Skill not found.")
+    if skill["status"] != "active":
+        raise HTTPException(409, "Only active skills can run.")
+    run_id = str(uuid.uuid4())
+    timestamp = now()
+    con = db()
+    try:
+        con.execute(
+            "INSERT INTO self_skill_runs(id,skill_id,status,steps_json,results_json,created_at) VALUES(?,?,'running',?,'[]',?)",
+            (run_id, skill_id, json.dumps(planned), timestamp),
+        )
+        con.commit()
+    finally:
+        con.close()
+    return _continue_skill_run(skill_id, run_id, planned, [], 0, skill["version"])
 
 
 class WorkflowCreate(BaseModel):

@@ -73,3 +73,9 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - POST /self/skills/{skill_id}/runs/{run_id}/cancel requests cooperative cancellation for a currently running execution. Cancellation is checked between steps; a step already executing may finish.
 - GET /self/skills/{skill_id}/runs exposes status, completed results, checkpoint, and cancellation flag. Cancelled runs retain completed results for inspection and are not automatically replayed.
 - Only the existing calculator and local knowledge-search primitives are allowed; whole-plan preflight remains mandatory. A checkpoint is progress evidence, not an instruction to replay side effects.
+
+
+## Interrupted skill run recovery
+- Startup recovery marks skill runs left in running state as interrupted while preserving their last committed checkpoint; it does not automatically replay any step.
+- POST /self/skills/{skill_id}/runs/{run_id}/resume accepts only interrupted or failed runs, revalidates the complete saved plan, and continues from the checkpoint. The checkpoint must match the number of persisted results.
+- Cancelled runs are intentionally not resumable through this endpoint. Resume is operator-triggered, and the current allowlist remains calculator and local knowledge search only.
