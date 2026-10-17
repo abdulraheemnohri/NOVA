@@ -119,9 +119,14 @@ def test_workflow_cannot_be_saved_for_draft_skill(isolated_store):
 
 def test_workflow_preflights_unsupported_tool(isolated_store):
     import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Unsupported Workflow", description="Reject unsupported tools",
+        instructions="Use only explicitly supported safe tools.",
+    ))
+    activate_skill(created["id"])
     with pytest.raises(HTTPException) as error:
-        module.WorkflowCreate(
-            skill_id="unused", name="Bad workflow",
+        module.create_workflow(module.WorkflowCreate(
+            skill_id=created["id"], name="Bad workflow",
             steps=[module.SkillStep(tool="shell", input={"command": "id"})],
-        )
+        ))
     assert error.value.status_code == 422
