@@ -14,6 +14,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 
 ## Remaining work (not yet complete)
 1. Runtime diagnostics still need release-specific version reporting and real target-device/model smoke tests; the UI deliberately does not execute arbitrary CLI binaries or infer accelerator support.
+2. Expand task-scoped runtime adapters: Piper TTS generation, ONNX embeddings/OCR/classification, and TFLite/LiteRT edge inference. Current inventory detection is not equivalent to those adapters being implemented.
 2. Semantic RAG with local embeddings, vector/hybrid retrieval and grounded citations.
 3. Scheduler worker with leases, retries, cancellation, recovery and explicit policy-gated task execution.
 4. Approval-bound tool execution and production OS-level sandboxing.
