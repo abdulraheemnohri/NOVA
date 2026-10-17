@@ -181,3 +181,41 @@ def test_cancel_requires_matching_running_run(isolated_store):
     with pytest.raises(HTTPException) as error:
         module.cancel_skill_run(created["id"], "missing-run")
     assert error.value.status_code == 404
+
+
+def test_interrupted_run_recovers_checkpoint_and_resumes_only_remaining_steps(isolated_store, monkeypatch):
+    import json
+    import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Resume Checkpoint", description="Resume only remaining safe steps",
+        instructions="Use bounded, read-only tools and preserve checkpoints.",
+    ))
+    activate_skill(created["id"])
+    # Seed a run as if the process stopped after the first completed step.
+    con = module.db()
+    try:
+        con.execute(
+            "INSERT INTO self_skill_runs(id,skill_id,status,steps_json,results_json,current_step,created_at) VALUES(?,?,?,?,?,?,?)",
+            ("interrupted-run", created["id"], "running", json.dumps([
+                {"tool": "calculator", "input": {"expression": "6 * 7"}},
+                {"tool": "calculator", "input": {"expression": "10 + 5"}},
+            ]), json.dumps([{"tool": "calculator", "result": {"result": 42}}]), 1, module.now()),
+        )
+        con.commit()
+    finally:
+        con.close()
+    assert module.recover_interrupted_skill_runs()["interrupted"] == 1
+    history = module.list_skill_runs(created["id"])["runs"][0]
+    assert history["status"] == "interrupted"
+    assert history["current_step"] == 1
+    result = module.resume_skill_run(created["id"], "interrupted-run")
+    assert result["status"] == "succeeded"
+    assert result["current_step"] == 2
+    assert [item["result"]["result"] for item in result["results"]] == [42, 15]
+
+
+def test_cancelled_skill_run_cannot_be_resumed(isolated_store):
+    import nova.self_improvement as module
+    with pytest.raises(HTTPException) as error:
+        module.resume_skill_run("unknown-skill", "unknown-run")
+    assert error.value.status_code == 404

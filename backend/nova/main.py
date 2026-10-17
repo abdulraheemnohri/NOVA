@@ -224,7 +224,9 @@ def startup():
     con.close()
     # Never replay a partially executed autonomous run after restart.
     from nova.autonomy import recover_interrupted_runs
+    from nova.self_improvement import recover_interrupted_skill_runs
     recover_interrupted_runs()
+    recover_interrupted_skill_runs()
     initialize_knowledge()
     initialize_scheduler_config()
     start_worker()
