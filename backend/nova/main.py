@@ -277,6 +277,19 @@ def write_file(req: FileWriteRequest):
     }
 
 
+@app.get("/api/workspace/snapshots")
+def list_snapshots():
+    con = _db()
+    try:
+        rows = con.execute(
+            """SELECT id,relative_path,existed,created_at,rolled_back_at
+            FROM snapshots ORDER BY created_at DESC LIMIT 100"""
+        ).fetchall()
+    finally:
+        con.close()
+    return [dict(row) for row in rows]
+
+
 @app.post("/api/workspace/rollback")
 def rollback(req: RollbackRequest):
     con = _db()
