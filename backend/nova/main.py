@@ -220,25 +220,25 @@ def write_file(req: FileWriteRequest):
                 "SELECT action,payload_json,status FROM approvals WHERE id=?",
                 (req.approval_id,),
             ).fetchone()
+            if row and row["status"] == "approved" and row["action"] == "workspace_write":
+                try:
+                    payload = json.loads(row["payload_json"])
+                except (json.JSONDecodeError, TypeError):
+                    payload = {}
+                matches = (
+                    payload.get("relative_path") == req.relative_path
+                    and payload.get("content_sha256") == content_hash
+                )
+                if matches:
+                    # Conditional update claims the approval once, even under concurrent requests.
+                    claimed = con.execute(
+                        "UPDATE approvals SET status='consuming' WHERE id=? AND status='approved'",
+                        (req.approval_id,),
+                    )
+                    con.commit()
+                    approved = claimed.rowcount == 1
         finally:
             con.close()
-        if row and row["status"] == "approved" and row["action"] == "workspace_write":
-            try:
-                payload = json.loads(row["payload_json"])
-            except (json.JSONDecodeError, TypeError):
-                payload = {}
-            matches = (
-                payload.get("relative_path") == req.relative_path
-                and payload.get("content_sha256") == content_hash
-            )
-            if matches:
-                # Atomically claim the approval so concurrent requests cannot both use it.
-                claimed = con.execute(
-                    "UPDATE approvals SET status='consuming' WHERE id=? AND status='approved'",
-                    (req.approval_id,),
-                )
-                con.commit()
-                approved = claimed.rowcount == 1
     policy = evaluate_tool("workspace_write", approved)
     if not policy.allowed:
         _audit("workspace.write.blocked", {"path": req.relative_path, "reason": policy.reason})
