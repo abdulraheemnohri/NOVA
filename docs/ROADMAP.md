@@ -19,6 +19,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Local whisper.cpp WAV transcription and Piper WAV synthesis endpoints with bounded inputs/timeouts, shell=False, temporary workspace-local files, and audit events. Piper requires a local ONNX voice and matching metadata sidecar.
 - Runtime Manager UI for engine discovery, transcription, speech synthesis and local audio playback. ONNX/TFLite model execution and llama.cpp chat fallback remain disabled.
 
+- Startup recovery marks abandoned autonomous runs as `interrupted`, preserves the last checkpoint and audit trail, and deliberately does not replay side effects automatically.
 - Autonomous planner now preflights every proposed step and exact tool input schema before any execution; invalid arithmetic, unexpected fields, unsupported tools, overlong inputs, and malformed reasons reject the whole plan before partial execution. Operators can request cancellation of a running workflow; cancellation is persisted and observed between tool steps, with a terminal cancelled state and audit event.\n\n## Newly implemented hardening
 - Process-local API request rate limiting and a separate failed-authentication budget, with basic response security headers. This is single-process defense in depth, not multi-user RBAC or an edge limiter.
 

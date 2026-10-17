@@ -220,6 +220,9 @@ def startup():
         pass
     con = _db()
     con.close()
+    # Never replay a partially executed autonomous run after restart.
+    from nova.autonomy import recover_interrupted_runs
+    recover_interrupted_runs()
     initialize_knowledge()
     initialize_scheduler_config()
     start_worker()
