@@ -1,4 +1,5 @@
 import hashlib
+from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
 
@@ -7,7 +8,7 @@ from nova.main import app
 
 
 def test_health_is_litert_only():
-    with TestClient(app) as client:
+    with _client() as client:
         data = client.get("/api/health").json()
     assert data["offline_mode"] is True
     assert data["llm_runtime"] == "LiteRT-LM only"
@@ -22,7 +23,16 @@ def test_unknown_approval_is_denied():
     assert response.status_code == 403
 
 
+@contextmanager
+def _client():
+    with TestClient(app) as client:
+        token = settings.api_token_file.read_text(encoding="utf-8").strip()
+        client.headers.update({"Authorization": f"Bearer {token}"})
+        yield client
+
+
 def _configure_temp_store(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "api_token_file", tmp_path / "api.token")
     monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
     monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
     monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
