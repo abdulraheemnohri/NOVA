@@ -12,6 +12,7 @@ Base URL: `http://127.0.0.1:8000/api`. All endpoints except `GET /health` requir
 - `POST /documents/import`: import supported local text content.
 - `POST /search`: local lexical search; semantic vector search is not implemented yet.
 - `GET /goals`, `POST /goals`: list and create goal records.
+- `POST /goals/{goal_id}/status`: update a goal to `open`, `in_progress`, `completed`, or `paused`; each transition is audit logged.
 - `GET /memory`, `POST /memory`, `DELETE /memory/{id}`: memory CRUD.
 
 ## Approval and recovery
