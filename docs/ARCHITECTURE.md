@@ -6,4 +6,4 @@
 - JSONL SHA-256 chained audit log.
 - Explicit tool allowlist and approval-gated writes.
 
-Current APIs: health, chat, approvals, workspace write, audit verification, and read-only settings. Document ingestion/RAG, memory, goal planning, workflows, multimodal support, authentication, and production sandbox remain follow-on milestones.
+Model management APIs: `GET /api/models/catalog`, `GET /api/models`, `POST /api/models/register`, and `POST /api/models/select`. The catalog covers representative chat/reasoning/tool-calling, voice, vision, embeddings, reranking, translation, OCR and classification families, plus low-end/mid-range/high-end device profiles. Registration verifies a local artifact's SHA-256 but does not execute or download it. Only `litertlm` artifacts can be selected for chat; other formats are inventory-only until dedicated adapters exist. Voice inference is not implemented yet.\n\nOther APIs include health, chat, approvals, workspace write, audit verification, and settings. Full sandboxing and multi-user RBAC remain follow-on milestones.
