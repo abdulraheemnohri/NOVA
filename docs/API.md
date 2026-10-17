@@ -24,4 +24,4 @@ Base URL: `http://127.0.0.1:8000/api`. The API has no authentication yet. Keep i
 
 For an approved write, calculate the content SHA-256, request approval for action `workspace_write` with the exact relative path and digest, approve the returned ID, then call the write endpoint with that ID and identical content. Keep the returned snapshot ID for recovery.
 
-These are early-stage endpoints. Authentication, atomic single-use approval consumption, concurrent-write race testing, and full adversarial testing remain necessary before production use.
+These are early-stage endpoints. Authentication, adversarial testing, and concurrent-write race testing remain necessary before production use. Write approvals are conditionally claimed once and marked consumed after a successful write.
