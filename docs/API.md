@@ -60,3 +60,9 @@ A workspace rollback is a high-risk action. Create an approval with action `roll
 
 ## Visual workflow builder
 The Self-Improvement Lab provides an ordered workflow builder for active skills. Operators can compose up to five calculator and local knowledge-search steps, reorder or remove them, then submit the explicit structured plan to the controlled skill-run endpoint. The entire plan is preflighted before execution; arbitrary code, shell, network, and write tools are not available. Workflow definitions in this UI are client-side drafts; execution history is persisted by the backend.
+
+
+## Persisted workflows
+- `GET /self/workflows` lists up to 200 saved workflows.
+- `POST /self/workflows` stores a named ordered plan bound to an active skill. Request shape: `{ "skill_id": "...", "name": "Research arithmetic", "steps": [{"tool":"calculator","input":{"expression":"6 * 7"}}] }`.
+- `POST /self/workflows/{workflow_id}/run` reruns a saved plan through the same whole-plan preflight and existing safe primitive allowlist. Execution records remain available through the skill's run-history endpoint. Saved plans are persisted in SQLite and creation/execution are audited.

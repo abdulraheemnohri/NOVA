@@ -38,6 +38,10 @@ def db():
         steps_json TEXT NOT NULL, results_json TEXT NOT NULL, error TEXT,
         created_at TEXT NOT NULL, finished_at TEXT,
         FOREIGN KEY(skill_id) REFERENCES self_skills(id))""")
+    con.execute("""CREATE TABLE IF NOT EXISTS self_workflows(
+        id TEXT PRIMARY KEY, skill_id TEXT NOT NULL, name TEXT NOT NULL,
+        steps_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        FOREIGN KEY(skill_id) REFERENCES self_skills(id))""")
     con.execute("""CREATE TABLE IF NOT EXISTS self_tool_proposals(
         id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
         primitive TEXT NOT NULL, input_schema_json TEXT NOT NULL,
@@ -322,3 +326,84 @@ def run_skill(skill_id: str, req: SkillRunRequest):
             "error_type": type(exc).__name__,
         })
         raise HTTPException(422, "Skill run failed; inspect run history for completed safe steps.") from exc
+
+
+class WorkflowCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    skill_id: str = Field(min_length=1, max_length=80)
+    name: str = Field(min_length=3, max_length=80)
+    steps: list[SkillStep] = Field(min_length=1, max_length=5)
+
+
+def _row_workflow(row):
+    item = dict(row)
+    item["steps"] = json.loads(item.pop("steps_json"))
+    return item
+
+
+@router.get("/workflows")
+def list_workflows():
+    con = db()
+    try:
+        rows = con.execute(
+            "SELECT w.*,s.name AS skill_name,s.status AS skill_status FROM self_workflows w "
+            "JOIN self_skills s ON s.id=w.skill_id ORDER BY w.updated_at DESC LIMIT 200"
+        ).fetchall()
+        return {"workflows": [_row_workflow(row) for row in rows]}
+    finally:
+        con.close()
+
+
+@router.post("/workflows", status_code=201)
+def create_workflow(req: WorkflowCreate):
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(422, "Workflow name must contain usable text.")
+    planned = [_validate_step(step) for step in req.steps]
+    con = db()
+    try:
+        skill = con.execute("SELECT id,status FROM self_skills WHERE id=?", (req.skill_id,)).fetchone()
+    finally:
+        con.close()
+    if skill is None:
+        raise HTTPException(404, "Skill not found.")
+    if skill["status"] != "active":
+        raise HTTPException(409, "A workflow can only be saved for an active skill.")
+    workflow_id = str(uuid.uuid4())
+    timestamp = now()
+    con = db()
+    try:
+        con.execute(
+            "INSERT INTO self_workflows(id,skill_id,name,steps_json,created_at,updated_at) VALUES(?,?,?,?,?,?)",
+            (workflow_id, req.skill_id, name, json.dumps(planned), timestamp, timestamp),
+        )
+        con.commit()
+        row = con.execute(
+            "SELECT w.*,s.name AS skill_name,s.status AS skill_status FROM self_workflows w "
+            "JOIN self_skills s ON s.id=w.skill_id WHERE w.id=?", (workflow_id,)
+        ).fetchone()
+    finally:
+        con.close()
+    append_audit(settings.audit_path, "self.workflow.created", {
+        "workflow_id": workflow_id, "skill_id": req.skill_id, "step_count": len(planned),
+        "tools": [step["tool"] for step in planned],
+    })
+    return _row_workflow(row)
+
+
+@router.post("/workflows/{workflow_id}/run", status_code=201)
+def run_saved_workflow(workflow_id: str):
+    con = db()
+    try:
+        row = con.execute("SELECT * FROM self_workflows WHERE id=?", (workflow_id,)).fetchone()
+    finally:
+        con.close()
+    if row is None:
+        raise HTTPException(404, "Workflow not found.")
+    steps = [SkillStep(tool=step["tool"], input=step["input"]) for step in json.loads(row["steps_json"])]
+    result = run_skill(row["skill_id"], SkillRunRequest(steps=steps))
+    append_audit(settings.audit_path, "self.workflow.run", {
+        "workflow_id": workflow_id, "skill_id": row["skill_id"], "run_id": result["run_id"],
+        "step_count": len(steps),
+    })
+    return {"workflow_id": workflow_id, **result}

@@ -80,3 +80,53 @@ def test_skill_run_preflights_all_steps_before_execution(isolated_store, monkeyp
         ]))
     assert error.value.status_code == 422
     assert called == []
+
+
+def test_workflow_is_persisted_and_can_be_run_again(isolated_store, monkeypatch):
+    import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Reusable Workflow", description="Reusable bounded arithmetic",
+        instructions="Run explicit arithmetic steps and report results.",
+    ))
+    activate_skill(created["id"])
+    workflow = module.create_workflow(module.WorkflowCreate(
+        skill_id=created["id"], name="Two calculations",
+        steps=[
+            module.SkillStep(tool="calculator", input={"expression": "6 * 7"}),
+            module.SkillStep(tool="calculator", input={"expression": "10 + 5"}),
+        ],
+    ))
+    assert workflow["steps"][0]["input"]["expression"] == "6 * 7"
+    assert module.list_workflows()["workflows"][0]["id"] == workflow["id"]
+    result = module.run_saved_workflow(workflow["id"])
+    assert result["status"] == "succeeded"
+    assert [item["result"]["result"] for item in result["results"]] == [42, 15]
+
+
+def test_workflow_cannot_be_saved_for_draft_skill(isolated_store):
+    import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Draft Workflow", description="Workflow requires active skill",
+        instructions="Only safe bounded steps.",
+    ))
+    with pytest.raises(HTTPException) as error:
+        module.create_workflow(module.WorkflowCreate(
+            skill_id=created["id"], name="Not allowed",
+            steps=[module.SkillStep(tool="calculator", input={"expression": "2+2"})],
+        ))
+    assert error.value.status_code == 409
+
+
+def test_workflow_preflights_unsupported_tool(isolated_store):
+    import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Unsupported Workflow", description="Reject unsupported tools",
+        instructions="Use only explicitly supported safe tools.",
+    ))
+    activate_skill(created["id"])
+    with pytest.raises(HTTPException) as error:
+        module.create_workflow(module.WorkflowCreate(
+            skill_id=created["id"], name="Bad workflow",
+            steps=[module.SkillStep(tool="shell", input={"command": "id"})],
+        ))
+    assert error.value.status_code == 422
