@@ -57,6 +57,7 @@ def runtime_inventory() -> dict[str, Any]:
     whisper_cli = _resolve_executable(settings.whisper_cli_path, ("whisper-cli",))
     piper_cli = _resolve_executable(settings.piper_cli_path, ("piper",))
     tesseract_cli = _resolve_executable(settings.tesseract_cli_path, ("tesseract",))
+    ffmpeg_cli = _resolve_executable(settings.ffmpeg_cli_path, ("ffmpeg",))
     llama_server = _resolve_executable(settings.llama_cpp_server_path, ("llama-server",))
     whisper_model = settings.whisper_model_path.expanduser()
     piper_model = settings.piper_model_path.expanduser()
@@ -66,6 +67,14 @@ def runtime_inventory() -> dict[str, Any]:
     tflite_available = _module_available("tflite_runtime") or _module_available("ai_edge_litert")
     transformers_available = _module_available("transformers")
     runtimes = [
+        {
+            "id": "ffmpeg-audio", "name": "FFmpeg audio converter",
+            "purpose": "Local audio normalization for offline transcription", "role": "audio_preprocessor",
+            "detected": ffmpeg_cli is not None, "executable": ffmpeg_cli,
+            "configured": bool(settings.ffmpeg_cli_path or ffmpeg_cli),
+            "status": "ready" if ffmpeg_cli else "not_available",
+            "policy": "Used only when the operator explicitly uploads a non-WAV file for local transcription.",
+        },
         {
             "id": "tesseract-ocr", "name": "Tesseract OCR",
             "purpose": "Local image-to-text extraction", "role": "image_to_text",
@@ -142,7 +151,7 @@ def runtime_inventory() -> dict[str, Any]:
             "Detection confirms executable/package presence only; it does not prove model compatibility or accelerator support.",
             "Optional runtimes are task-scoped. NOVA never starts a server or downloads model files automatically.",
             "Tesseract OCR requires a local tesseract executable and optional Pillow image validation; it is not used for chat.",
-            "This whisper.cpp adapter accepts WAV input only; convert other formats to 16 kHz mono 16-bit PCM WAV with a separately installed trusted converter.",
+            "whisper.cpp accepts WAV directly; common formats are normalized with local FFmpeg when its executable is installed. No remote conversion is used.",
         ],
     }
 
@@ -283,19 +292,49 @@ def synthesize_with_piper(req: SynthesisRequest):
             pass
 
 
+def _convert_audio_to_wav(source_path: Path, target_path: Path, timeout: int) -> None:
+    ffmpeg = _resolve_executable(settings.ffmpeg_cli_path, ("ffmpeg",))
+    if not ffmpeg:
+        raise HTTPException(503, "Non-WAV transcription requires local FFmpeg. Set NOVA_FFMPEG_CLI_PATH.")
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-nostdin", "-v", "error", "-y", "-i", str(source_path),
+             "-map_metadata", "-1", "-vn", "-ac", "1", "-ar", "16000",
+             "-sample_fmt", "s16", "-f", "wav", str(target_path)],
+            shell=False, capture_output=True, text=True, timeout=timeout,
+            check=False, cwd=str(source_path.parent),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(504, "Local FFmpeg audio conversion timed out.") from exc
+    if result.returncode != 0 or not target_path.is_file():
+        raise HTTPException(415, "Local FFmpeg could not decode this audio format.")
+    if target_path.stat().st_size > _MAX_WAV_BYTES:
+        raise HTTPException(413, "Normalized WAV exceeds the 25 MB safety limit.")
+    with target_path.open("rb") as stream:
+        header = stream.read(12)
+    if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WAVE":
+        raise HTTPException(502, "FFmpeg output is not a valid RIFF/WAVE file.")
+
+
 @router.post("/whisper/transcribe")
 async def transcribe_with_whisper(file: UploadFile = File(...)):
-    """Transcribe an uploaded WAV using an explicitly configured local whisper.cpp model."""
+    """Transcribe common audio formats using local FFmpeg and whisper.cpp."""
     filename = Path(file.filename or "audio.wav").name
-    if Path(filename).suffix.lower() != ".wav":
-        raise HTTPException(415, "Only .wav input is accepted. Convert audio to 16 kHz mono 16-bit PCM WAV first.")
+    suffix = Path(filename).suffix.lower()
+    allowed_suffixes = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm", ".aac", ".mp4"}
+    if suffix not in allowed_suffixes:
+        await file.close()
+        raise HTTPException(415, "Supported audio formats: WAV, MP3, M4A, FLAC, OGG, WebM, AAC and MP4.")
     executable = _resolve_executable(settings.whisper_cli_path, ("whisper-cli",))
     if not executable:
+        await file.close()
         raise HTTPException(503, "whisper.cpp whisper-cli was not found. Set NOVA_WHISPER_CLI_PATH to its executable.")
     model = settings.whisper_model_path.expanduser()
     if not model.is_file():
+        await file.close()
         raise HTTPException(503, "Whisper model is missing. Set NOVA_WHISPER_MODEL_PATH to a local ggml model file.")
     if model.suffix.lower() != ".bin":
+        await file.close()
         raise HTTPException(422, "whisper.cpp model path must point to a .bin ggml model file.")
 
     limit = max(1024, min(settings.whisper_max_upload_bytes, _MAX_WAV_BYTES))
@@ -305,8 +344,8 @@ async def transcribe_with_whisper(file: UploadFile = File(...)):
         raise HTTPException(400, "Uploaded audio file is empty.")
     if len(audio) > limit:
         raise HTTPException(413, f"Audio upload exceeds the configured {limit}-byte limit.")
-    if len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
-        raise HTTPException(415, "Uploaded file is not a RIFF/WAVE audio file.")
+    if suffix == ".wav" and (len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE"):
+        raise HTTPException(415, "Uploaded WAV is not a valid RIFF/WAVE file.")
 
     workspace = settings.workspace.resolve()
     audio_dir = workspace / ".nova-audio"
@@ -316,17 +355,27 @@ async def transcribe_with_whisper(file: UploadFile = File(...)):
     if workspace not in audio_dir.resolve().parents:
         raise HTTPException(403, "Audio work directory must remain inside the NOVA workspace.")
     job_id = uuid.uuid4().hex
-    input_path = audio_dir / f"{job_id}.wav"
+    input_path = audio_dir / f"{job_id}{suffix}"
+    normalized_path = input_path if suffix == ".wav" else audio_dir / f"{job_id}-normalized.wav"
     output_prefix = audio_dir / f"{job_id}-transcript"
     output_path = Path(str(output_prefix) + ".txt")
+    timeout = max(10, min(settings.whisper_timeout_seconds, 600))
     try:
         with input_path.open("xb") as stream:
             stream.write(audio)
+        if suffix != ".wav":
+            _convert_audio_to_wav(input_path, normalized_path, timeout)
+        with normalized_path.open("rb") as stream:
+            wav_header = stream.read(12)
+        if len(wav_header) < 12 or wav_header[:4] != b"RIFF" or wav_header[8:12] != b"WAVE":
+            raise HTTPException(415, "Input is not a valid WAV after local normalization.")
+        normalized_bytes = normalized_path.stat().st_size
+        if normalized_bytes > _MAX_WAV_BYTES:
+            raise HTTPException(413, "Normalized audio exceeds the 25 MB safety limit.")
         command = [
-            executable, "--model", str(model.resolve()), "--file", str(input_path),
+            executable, "--model", str(model.resolve()), "--file", str(normalized_path),
             "-otxt", "-of", str(output_prefix), "-nt",
         ]
-        timeout = max(10, min(settings.whisper_timeout_seconds, 600))
         try:
             completed = subprocess.run(
                 command, shell=False, capture_output=True, text=True,
@@ -338,21 +387,24 @@ async def transcribe_with_whisper(file: UploadFile = File(...)):
             append_audit(settings.audit_path, "runtime.whisper.failure", {
                 "job_id": job_id, "return_code": completed.returncode,
             })
-            raise HTTPException(502, "whisper.cpp transcription failed; verify local runtime/model and WAV format.")
+            raise HTTPException(502, "whisper.cpp transcription failed; verify the local runtime/model.")
         if not output_path.is_file():
             raise HTTPException(502, "whisper.cpp completed without producing the expected text output.")
         transcript = output_path.read_text(encoding="utf-8", errors="replace").strip()
         append_audit(settings.audit_path, "runtime.whisper.transcribed", {
-            "job_id": job_id, "input_bytes": len(audio), "output_chars": len(transcript),
+            "job_id": job_id, "input_bytes": len(audio), "normalized_bytes": normalized_bytes,
+            "source_format": suffix.lstrip("."), "converted": suffix != ".wav",
+            "output_chars": len(transcript),
         })
         return {"runtime": "whisper.cpp", "model": model.name, "transcript": transcript,
-                "input_bytes": len(audio), "job_id": job_id}
+                "input_bytes": len(audio), "source_format": suffix.lstrip("."),
+                "converted": suffix != ".wav", "job_id": job_id}
     except HTTPException:
         raise
     except OSError as exc:
         raise HTTPException(500, "Unable to safely stage or read local transcription files.") from exc
     finally:
-        for path in (input_path, output_path):
+        for path in {input_path, normalized_path, output_path}:
             try:
                 path.unlink(missing_ok=True)
             except OSError:

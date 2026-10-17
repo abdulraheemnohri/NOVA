@@ -93,7 +93,7 @@ def test_whisper_rejects_non_wav_upload(tmp_path, monkeypatch):
     monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: "/usr/local/bin/whisper-cli")
     with _client(tmp_path, monkeypatch) as (client, headers):
         response = client.post("/api/runtimes/whisper/transcribe", headers=headers,
-                               files={"file": ("sample.mp3", b"not audio", "audio/mpeg")})
+                               files={"file": ("sample.xyz", b"not audio", "application/octet-stream")})
         assert response.status_code == 415
 
 
@@ -230,3 +230,40 @@ def test_tesseract_ocr_uses_shell_free_argv_and_cleans_temporary_files(tmp_path,
         assert observed["kwargs"]["timeout"] == 17
         assert observed["command"][0] == "/usr/bin/tesseract"
         assert not list((settings.workspace / ".nova-ocr").glob("ocr-*"))
+
+
+
+def test_audio_conversion_uses_shell_free_ffmpeg_and_validates_output(tmp_path, monkeypatch):
+    import subprocess
+    from nova import runtimes
+
+    source = tmp_path / "input.mp3"
+    source.write_bytes(b"fake compressed audio")
+    target = tmp_path / "normalized.wav"
+    monkeypatch.setattr(runtimes.settings, "ffmpeg_cli_path", "/usr/bin/ffmpeg")
+    monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: configured)
+    captured = {}
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["kwargs"] = kwargs
+        target.write_bytes(b"RIFF" + b"\x00\x00\x00\x00" + b"WAVE" + b"\x00" * 16)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+    monkeypatch.setattr(runtimes.subprocess, "run", fake_run)
+
+    runtimes._convert_audio_to_wav(source, target, timeout=20)
+    assert captured["kwargs"]["shell"] is False
+    assert captured["kwargs"]["timeout"] == 20
+    assert "-ac" in captured["argv"] and "1" in captured["argv"]
+    assert "-ar" in captured["argv"] and "16000" in captured["argv"]
+
+
+def test_audio_conversion_fails_closed_when_ffmpeg_missing(tmp_path, monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from nova import runtimes
+
+    monkeypatch.setattr(runtimes.settings, "ffmpeg_cli_path", "")
+    monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: None)
+    with pytest.raises(HTTPException) as exc:
+        runtimes._convert_audio_to_wav(tmp_path / "input.mp3", tmp_path / "output.wav", timeout=20)
+    assert exc.value.status_code == 503
