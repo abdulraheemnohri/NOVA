@@ -157,7 +157,7 @@ def search_huggingface(q: str = Query(min_length=1, max_length=_MAX_QUERY), limi
 @router.get("/files")
 def list_huggingface_files(repo_id: str = Query(min_length=3, max_length=200), revision: str = Query(default="main", min_length=1, max_length=120)):
     repo = _validate_repo(repo_id)
-    if "/" in revision or revision in {".", ".."} or "\\" in revision:
+    if revision.startswith("/") or "\\" in revision or any(part in {"", ".", ".."} for part in revision.split("/")):
         raise HTTPException(422, "Revision must be a branch, tag, or commit identifier.")
     url = "https://huggingface.co/api/models/" + urllib.parse.quote(repo, safe="/") + "?" + urllib.parse.urlencode({"revision": revision})
     detail = _hub_json(url)
@@ -181,7 +181,7 @@ def download_huggingface_artifact(req: DownloadRequest):
     repo = _validate_repo(req.repo_id)
     filename, extension = _safe_filename(req.filename)
     revision = req.revision.strip()
-    if not revision or "/" in revision or "\\" in revision or revision in {".", ".."}:
+    if not revision or revision.startswith("/") or "\\" in revision or any(part in {"", ".", ".."} for part in revision.split("/")):
         raise HTTPException(422, "Revision must be a branch, tag, or commit identifier.")
 
     # Query metadata first so the UI cannot trick NOVA into blindly streaming arbitrary URLs.
