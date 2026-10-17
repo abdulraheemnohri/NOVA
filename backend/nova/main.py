@@ -345,10 +345,16 @@ def decide(approval_id: str, decision: str):
         if row["status"] != "pending":
             raise HTTPException(409, "Approval already decided.")
         status = "approved" if decision == "approve" else "rejected"
-        con.execute(
-            "UPDATE approvals SET status=?,decided_at=CURRENT_TIMESTAMP WHERE id=?",
+        # Claim the pending decision atomically. A concurrent request may have
+        # changed the status after the SELECT above, so never update by id alone.
+        claimed = con.execute(
+            "UPDATE approvals SET status=?,decided_at=CURRENT_TIMESTAMP "
+            "WHERE id=? AND status='pending'",
             (status, approval_id),
         )
+        if claimed.rowcount != 1:
+            con.rollback()
+            raise HTTPException(409, "Approval already decided.")
         con.commit()
     finally:
         con.close()
