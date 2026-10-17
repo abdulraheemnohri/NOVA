@@ -3,13 +3,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
+import hmac
 import sqlite3
 import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -20,6 +23,23 @@ from nova.litert import LiteRTError, chat, health
 from nova.policy import evaluate_tool
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
+
+
+@app.middleware("http")
+async def require_local_api_token(request: Request, call_next):
+    # Health is intentionally public for local process supervision; all other API routes
+    # require the generated, file-backed bearer token.
+    if request.url.path == "/api/health" or not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    try:
+        expected = settings.api_token_file.read_text(encoding="utf-8").strip()
+    except OSError:
+        expected = ""
+    auth = request.headers.get("authorization", "")
+    supplied = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+        return JSONResponse(status_code=401, content={"detail": "Local API token required or invalid."})
+    return await call_next(request)
 app.include_router(knowledge_router)
 app.add_middleware(
     CORSMiddleware,
@@ -112,6 +132,18 @@ def _atomic_write(target: Path, content: bytes):
 @app.on_event("startup")
 def startup():
     settings.workspace.mkdir(parents=True, exist_ok=True)
+    settings.api_token_file.parent.mkdir(parents=True, exist_ok=True)
+    if not settings.api_token_file.exists():
+        token = secrets.token_urlsafe(32)
+        fd = os.open(settings.api_token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(token + "\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+    try:
+        os.chmod(settings.api_token_file, 0o600)
+    except OSError:
+        pass
     con = _db()
     con.close()
     initialize_knowledge()
