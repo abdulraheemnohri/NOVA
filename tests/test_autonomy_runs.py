@@ -55,3 +55,23 @@ def test_cancel_migration_adds_column_to_existing_run_table(tmp_path,monkeypatch
  c=autonomy.db()
  try:assert "cancel_requested" in {r[1] for r in c.execute("PRAGMA table_info(autonomy_runs)")}
  finally:c.close()
+
+def test_startup_recovery_marks_running_run_interrupted_and_preserves_checkpoint(tmp_path,monkeypatch):
+ from nova.config import settings
+ from nova.tasks import TaskCreate, create_task, update_task_status, TaskStatusUpdate
+ monkeypatch.setattr(settings,"database_path",tmp_path/"recovery.sqlite3")
+ monkeypatch.setattr(settings,"audit_path",tmp_path/"audit.jsonl")
+ task=create_task(TaskCreate(title="recover me"))
+ update_task_status(task["id"],TaskStatusUpdate(status="planned"))
+ update_task_status(task["id"],TaskStatusUpdate(status="in_progress"))
+ created="2026-10-18T00:00:00+00:00"
+ autonomy.save_run("restart-run",task["id"],"recover goal","running",[{"step":1,"tool":"calculator","ok":True,"result":4}],[{"tool":"calculator","input":{"expression":"2+2"}}],{"verified":False,"summary":"Pending"},1,created)
+ result=autonomy.recover_interrupted_runs()
+ assert result["interrupted"]==1
+ view=autonomy.run_detail("restart-run")
+ assert view["status"]=="interrupted"
+ assert view["current_step"]==1
+ assert view["steps"][0]["result"]==4
+ assert autonomy.recover_interrupted_runs()["interrupted"]==0
+ from nova.audit import verify_audit
+ assert verify_audit(settings.audit_path)[0] is True

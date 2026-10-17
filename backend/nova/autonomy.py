@@ -108,6 +108,23 @@ def cancel_run(run_id:str):
  if row["status"]!="running":raise HTTPException(409,"Only a running autonomy run can be cancelled.")
  append_audit(settings.audit_path,"autonomy.cancel_requested",{"run_id":run_id})
  return {"run_id":run_id,"status":"cancel_requested","cancel_requested":True,"message":"Cancellation is checked between tool steps; an already-running step may finish first."}
+def recover_interrupted_runs():
+ """Mark runs left active by a process restart; never replay side effects automatically."""
+ c=db()
+ try:
+  now=datetime.now(timezone.utc).isoformat()
+  rows=c.execute("SELECT id,task_id,current_step FROM autonomy_runs WHERE status='running'").fetchall()
+  for row in rows:
+   c.execute("UPDATE autonomy_runs SET status='interrupted',updated_at=? WHERE id=? AND status='running'",(now,row["id"]))
+  c.commit()
+ finally:c.close()
+ for row in rows:
+  try:
+   update_task_status(row["task_id"],TaskStatusUpdate(status="failed",result="Autonomy run interrupted by process restart. Checkpoint preserved; automatic replay is disabled."))
+  except (HTTPException,ValueError):
+   pass
+  append_audit(settings.audit_path,"autonomy.interrupted",{"run_id":row["id"],"task_id":row["task_id"],"checkpoint_step":row["current_step"]})
+ return {"interrupted":len(rows),"run_ids":[row["id"] for row in rows]}
 def cancel_requested(run_id):
  c=db()
  try:r=c.execute("SELECT cancel_requested FROM autonomy_runs WHERE id=?",(run_id,)).fetchone()
