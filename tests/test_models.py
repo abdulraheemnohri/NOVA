@@ -42,8 +42,8 @@ def test_model_selection_persists_litert_model_locally(monkeypatch, tmp_path):
         assert response.status_code == 200, response.text
         listed = client.get("/api/models")
     assert listed.status_code == 200
-    assert listed.json()["active_model_id"] == "litert-qwen3-4b-thinking"
-    assert next(m for m in listed.json()["models"] if m["id"] == "litert-qwen3-4b-thinking")["active"]
+    assert listed.json()["active_model_id"] == "local-qwen"
+    assert next(m for m in listed.json()["models"] if m.get("model_id") == "local-qwen")["active"]
 
 
 def test_non_litert_model_cannot_be_selected_for_chat(monkeypatch, tmp_path):
