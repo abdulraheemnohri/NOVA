@@ -108,3 +108,52 @@ def test_whisper_requires_configured_model(tmp_path, monkeypatch):
         response = client.post("/api/runtimes/whisper/transcribe", headers=headers,
                                files={"file": ("sample.wav", b"RIFF0000WAVEaudio", "audio/wav")})
         assert response.status_code == 503
+
+
+def test_piper_synthesis_uses_local_model_and_returns_audio(tmp_path, monkeypatch):
+    from nova.config import settings
+    from nova import runtimes
+
+    model = tmp_path / "voice.onnx"
+    model.write_bytes(b"test-model")
+    (tmp_path / "voice.onnx.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(settings, "piper_cli_path", "/usr/local/bin/piper")
+    monkeypatch.setattr(settings, "piper_model_path", model)
+    monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
+    monkeypatch.setattr(settings, "whisper_timeout_seconds", 60)
+    monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: "/usr/local/bin/piper")
+
+    observed = {}
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["kwargs"] = kwargs
+        output = command[command.index("--output_file") + 1]
+        with open(output, "wb") as stream:
+            stream.write(b"RIFF" + (4).to_bytes(4, "little") + b"WAVE" + b"audio")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(runtimes.subprocess, "run", fake_run)
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.post("/api/runtimes/piper/synthesize", headers=headers,
+                               json={"text": "Hello from local TTS"})
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"].startswith("audio/wav")
+        assert response.content.startswith(b"RIFF")
+        assert observed["kwargs"]["shell"] is False
+        assert observed["kwargs"]["input"] == "Hello from local TTS"
+        assert not list((tmp_path / "workspace" / ".nova-audio").glob("*-speech.wav"))
+
+
+def test_piper_synthesis_requires_voice_metadata(tmp_path, monkeypatch):
+    from nova.config import settings
+    from nova import runtimes
+
+    model = tmp_path / "voice.onnx"
+    model.write_bytes(b"test-model")
+    monkeypatch.setattr(settings, "piper_cli_path", "/usr/local/bin/piper")
+    monkeypatch.setattr(settings, "piper_model_path", model)
+    monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: "/usr/local/bin/piper")
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.post("/api/runtimes/piper/synthesize", headers=headers,
+                               json={"text": "hello"})
+        assert response.status_code == 503
