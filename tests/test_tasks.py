@@ -100,11 +100,11 @@ def test_task_retry_budget_validation_and_legacy_migration(tmp_path, monkeypatch
     con.commit()
     con.close()
     monkeypatch.setattr(settings, "database_path", legacy_path)
-    from nova.tasks import list_tasks
-    assert list_tasks() == []
-    con = sqlite3.connect(legacy_path)
+    from nova.tasks import _connect
+    migrated = _connect()
     try:
-        columns = {row[1] for row in con.execute("PRAGMA table_info(tasks)")}
+        columns = {row[1] for row in migrated.execute("PRAGMA table_info(tasks)")}
+        assert migrated.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
     finally:
-        con.close()
+        migrated.close()
     assert "max_attempts" in columns
