@@ -271,9 +271,14 @@ def list_skill_runs(skill_id: str):
 def resume_skill_run(skill_id: str, run_id: str):
     con = db()
     try:
-        row = con.execute("SELECT * FROM self_skill_runs WHERE id=? AND skill_id=?", (run_id, skill_id)).fetchone()
+        row = con.execute(
+            "SELECT r.*,s.status AS skill_status,s.version AS skill_version FROM self_skill_runs r "
+            "JOIN self_skills s ON s.id=r.skill_id WHERE r.id=? AND r.skill_id=?", (run_id, skill_id)
+        ).fetchone()
         if row is None:
             raise HTTPException(404, "Skill run not found.")
+        if row["skill_status"] != "active":
+            raise HTTPException(409, "Only runs belonging to an active skill can be resumed.")
         if row["status"] not in {"interrupted", "failed"}:
             raise HTTPException(409, "Only interrupted or failed runs can be resumed; cancelled runs are not resumed.")
         planned_raw = json.loads(row["steps_json"])
@@ -299,7 +304,7 @@ def resume_skill_run(skill_id: str, run_id: str):
     append_audit(settings.audit_path, "self.skill.run_resumed", {
         "run_id": run_id, "skill_id": skill_id, "checkpoint_step": checkpoint, "remaining_steps": len(planned) - checkpoint,
     })
-    return _continue_skill_run(skill_id, run_id, planned, results, checkpoint, 1)
+    return _continue_skill_run(skill_id, run_id, planned, results, checkpoint, row["skill_version"])
 
 
 @router.post("/skills/{skill_id}/runs/{run_id}/cancel")
