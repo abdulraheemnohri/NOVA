@@ -155,11 +155,15 @@ async def transcribe_with_whisper(file: UploadFile = File(...)):
         raise HTTPException(400, "Uploaded audio file is empty.")
     if len(audio) > limit:
         raise HTTPException(413, f"Audio upload exceeds the configured {limit}-byte limit.")
+    if len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+        raise HTTPException(415, "Uploaded file is not a RIFF/WAVE audio file.")
 
     workspace = settings.workspace.resolve()
     audio_dir = workspace / ".nova-audio"
+    if audio_dir.is_symlink():
+        raise HTTPException(403, "Audio work directory must not be a symbolic link.")
     audio_dir.mkdir(parents=True, exist_ok=True)
-    if audio_dir.is_symlink() or workspace not in audio_dir.resolve().parents:
+    if workspace not in audio_dir.resolve().parents:
         raise HTTPException(403, "Audio work directory must remain inside the NOVA workspace.")
     job_id = uuid.uuid4().hex
     input_path = audio_dir / f"{job_id}.wav"
