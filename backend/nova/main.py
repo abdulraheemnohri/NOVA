@@ -445,4 +445,8 @@ def get_settings():
         "network_policy": "loopback-only",
         "tool_policy": "default-deny",
         "rollback_enabled": True,
+        "huggingface_enabled": True,
+        "huggingface_cache_dir": str(settings.huggingface_cache_dir),
+        "huggingface_max_download_bytes": settings.huggingface_max_download_bytes,
+        "huggingface_token_configured": bool(os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()),
     }
