@@ -22,5 +22,7 @@ class Settings(BaseSettings):
     huggingface_max_download_bytes: int = 2000000000
     huggingface_token: str = ""
     require_approval_for_writes: bool = True
+    scheduler_enabled: bool = False
+    scheduler_interval_seconds: int = 15
 
 settings = Settings()
