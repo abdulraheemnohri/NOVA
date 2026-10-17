@@ -227,10 +227,18 @@ def write_file(req: FileWriteRequest):
                 payload = json.loads(row["payload_json"])
             except (json.JSONDecodeError, TypeError):
                 payload = {}
-            approved = (
+            matches = (
                 payload.get("relative_path") == req.relative_path
                 and payload.get("content_sha256") == content_hash
             )
+            if matches:
+                # Atomically claim the approval so concurrent requests cannot both use it.
+                claimed = con.execute(
+                    "UPDATE approvals SET status='consuming' WHERE id=? AND status='approved'",
+                    (req.approval_id,),
+                )
+                con.commit()
+                approved = claimed.rowcount == 1
     policy = evaluate_tool("workspace_write", approved)
     if not policy.allowed:
         _audit("workspace.write.blocked", {"path": req.relative_path, "reason": policy.reason})
@@ -257,8 +265,22 @@ def write_file(req: FileWriteRequest):
     try:
         _atomic_write(target, content)
     except OSError as exc:
+        if req.approval_id and approved:
+            con = _db()
+            try:
+                con.execute("UPDATE approvals SET status='failed' WHERE id=? AND status='consuming'", (req.approval_id,))
+                con.commit()
+            finally:
+                con.close()
         _audit("workspace.write.failure", {"snapshot_id": snapshot_id, "error": type(exc).__name__})
         raise HTTPException(500, "Atomic workspace write failed; snapshot retained.") from exc
+    if req.approval_id and approved:
+        con = _db()
+        try:
+            con.execute("UPDATE approvals SET status='consumed' WHERE id=? AND status='consuming'", (req.approval_id,))
+            con.commit()
+        finally:
+            con.close()
     _audit(
         "workspace.write",
         {
