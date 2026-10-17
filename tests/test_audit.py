@@ -17,7 +17,7 @@ def test_audit_tampering_is_detected(tmp_path):
     append_audit(path, "test.event", {"value": "original"})
     record = json.loads(path.read_text(encoding="utf-8"))
     record["details"]["value"] = "tampered"
-    path.write_text(json.dumps(record) + "\\n", encoding="utf-8")
+    path.write_text(json.dumps(record) + "\n", encoding="utf-8")
     assert verify_audit(path) == (False, 0)
 
 
