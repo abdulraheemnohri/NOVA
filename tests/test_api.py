@@ -174,3 +174,15 @@ def test_generated_token_is_private(monkeypatch, tmp_path):
     import os
     if os.name == "posix":
         assert settings.api_token_file.stat().st_mode & 0o777 == 0o600
+
+
+def test_protected_api_rejects_invalid_token():
+    with TestClient(app) as client:
+        response = client.get("/api/approvals", headers={"Authorization": "Bearer definitely-not-the-token"})
+    assert response.status_code == 401
+
+
+def test_health_is_available_without_token():
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+    assert response.status_code == 200
