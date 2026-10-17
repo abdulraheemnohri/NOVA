@@ -23,6 +23,9 @@ from nova.litert import LiteRTError, chat, health
 from nova.model_manager import active_model_id, router as model_router
 from nova.huggingface import router as huggingface_router
 from nova.policy import evaluate_tool
+from nova.tasks import router as tasks_router
+from nova.diagnostics import router as diagnostics_router
+from nova.runtimes import router as runtimes_router
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
 
@@ -54,6 +57,9 @@ async def require_local_api_token(request: Request, call_next):
 app.include_router(knowledge_router)
 app.include_router(model_router)
 app.include_router(huggingface_router)
+app.include_router(tasks_router)
+app.include_router(diagnostics_router)
+app.include_router(runtimes_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

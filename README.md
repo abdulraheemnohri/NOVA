@@ -24,7 +24,15 @@ The Model Manager includes a dedicated Hugging Face page for model metadata sear
 Optional settings: `NOVA_HUGGINGFACE_CACHE_DIR`, `NOVA_HUGGINGFACE_MAX_DOWNLOAD_BYTES`, and `NOVA_HUGGINGFACE_TOKEN` (backend environment only; needed for gated/private repositories). Never commit a real token. See `docs/ARCHITECTURE.md` and `docs/OFFLINE_DEPLOYMENT.md`.
 
 ## LiteRT-LM
-NOVA never falls back to Ollama, llama.cpp, or cloud providers. It uses a loopback-only OpenAI-compatible endpoint only if the installed LiteRT-LM release supports it. Runtime health is not proof of model correctness or GPU/NPU support.
+NOVA never falls back to Ollama, llama.cpp, or cloud providers. The default endpoint is `http://127.0.0.1:9379/v1`, matching the documented `litert-lm serve` default port; override it with `NOVA_LITERT_BASE_URL` if you start the local server on another loopback port. Start the server with `litert-lm serve --host 127.0.0.1 --port 9379`. Runtime health is not proof of model correctness or GPU/NPU support.
+
+## Task planner and queue
+
+The Tasks page stores local operator-authored tasks, plan steps, priority, optional timezone-aware due times, status transitions, attempt counts and results in SQLite. Every create/status/delete event is audit logged. The queue does not execute shell commands or model-generated plans, and due times are not scheduled until a dedicated worker is implemented. See `docs/TASKS_API.md`.
+
+## Runtime diagnostics
+
+Open **Diagnostics** in the dashboard or call `GET /api/diagnostics` with the local bearer token. It reports LiteRT-LM endpoint reachability, model IDs returned by the local server, whether the configured model ID appears in that list, CLI presence on `PATH`, host/Python/disk details and audit-chain status. It is read-only: it does not execute shell commands or guess runtime versions, model compatibility, or GPU/NPU support. A model appearing in `/models` is not proof that inference will succeed.
 
 ## Security status
 - Default-deny tool policy; unknown tools are blocked.

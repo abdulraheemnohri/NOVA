@@ -1,29 +1,28 @@
 # NOVA Implementation Roadmap
 
-This file distinguishes shipped foundation from planned work; a screen or API stub is not considered a complete feature.
+This roadmap distinguishes implemented behavior from planned work. A screen or API stub is not considered complete without persistence, policy checks, audit events, tests, documentation, and offline behavior.
 
-## Implemented in this branch
-- FastAPI app and React/TypeScript/Tailwind dashboard shell.
-- Loopback-only LiteRT-LM-compatible HTTP adapter; no remote model providers or inference fallback.
-- Basic health endpoint and local runtime connectivity check.
-- Explicit default-deny tool registry.
-- SQLite approval records and decisions.
-- Workspace-contained write endpoint; approval must match the exact relative path and content SHA-256.
-- Pre-write copy for existing files.
-- SHA-256 hash-chained JSONL audit log and verifier.
-- Initial tests, CI workflow, Debian/offline documentation.
+## Implemented foundation
+- FastAPI API and React/TypeScript/Tailwind dashboard.
+- Loopback-only LiteRT-LM OpenAI-compatible endpoint; no cloud or alternate inference fallback.
+- Local bearer-token authentication, default-deny tool policy, approval-gated workspace writes and snapshot rollback.
+- SQLite model registry, curated catalog/device tiers, SHA-256 artifact validation, optional Hugging Face metadata/artifact import.
+- Local document import/search, goals, memory, approvals, audit verification, snapshots and rollback UI.
+- Persistent task queue API and UI: create/list/filter/delete tasks; explicit lifecycle transitions; priority, optional timezone-aware due time, plan steps, result, attempt count and audit records.
+- Task queue is intentionally not a command executor. It never runs shell commands or executes model-generated plans.
+- Read-only runtime diagnostics API and UI: LiteRT-LM endpoint status, model IDs exposed by the server, configured-model presence, CLI PATH discovery, Python/platform/disk details, audit-chain status and explicit compatibility limitations.
 
-## Remaining implementation
-1. Authentication, secure session handling, RBAC, CSRF and rate limiting.
-2. PDF/DOCX/image/audio ingestion, OCR, chunking, local embedding adapter and vector/hybrid retrieval with citations.
-3. User-controlled episodic/semantic/procedural memory and deletion/retention controls.
-4. Goals, editable plans, task scheduler, cancellation, retries and recovery.
-5. Approval-bound action execution, tool registry UI and sandboxed code execution using OS isolation.
-6. Transactional snapshots, restore/rollback UI, backups and restore drills.
-7. Workflow builder, multi-agent state machine, critic/verifier and prompt-injection tests.
-8. Voice/vision modules with dependency and model checks.
-9. Full settings validation, model manager, manifest/checksum validation, benchmark suite.
-10. Air-gapped integration tests against actual LiteRT-LM builds and model artifacts.
+## Remaining work (not yet complete)
+1. Runtime diagnostics still need release-specific version reporting and real target-device/model smoke tests; the UI deliberately does not execute arbitrary CLI binaries or infer accelerator support.
+2. Semantic RAG with local embeddings, vector/hybrid retrieval and grounded citations.
+3. Scheduler worker with leases, retries, cancellation, recovery and explicit policy-gated task execution.
+4. Approval-bound tool execution and production OS-level sandboxing.
+5. Voice: real ASR/TTS adapters with model/dependency checks and UI controls.
+6. Vision/OCR adapters and secure file ingestion for PDF/DOCX/images/audio.
+7. Full settings validation and safe editable settings persistence.
+8. Multi-user RBAC, CSRF protections for browser-session deployments, rate limiting and encrypted sensitive storage.
+9. Workflow builder, multi-agent state machine, critic/verifier and prompt-injection tests.
+10. Air-gapped integration tests against supported LiteRT-LM releases, artifacts and target hardware.
 
 ## Definition of done
-A feature is complete only when its API, UI controls, persistence, permission checks, audit events, tests, documentation, and offline behavior all exist and pass CI. The actual LiteRT-LM release/model/hardware combination must be tested on target hardware; this repository cannot truthfully claim GPU/NPU support without that evidence.
+A feature is complete only when API, UI controls, persistence, permission checks, audit events, tests, docs, and offline behavior exist and pass CI. Never claim GPU/NPU or model compatibility without a real target-device test.
