@@ -186,3 +186,13 @@ def test_health_is_available_without_token():
     with TestClient(app) as client:
         response = client.get("/api/health")
     assert response.status_code == 200
+
+
+def test_workspace_write_cannot_target_internal_snapshot_store(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        response = client.post(
+            "/api/workspace/write",
+            json={"relative_path": ".nova-snapshots/forged.bak", "content": "tampered"},
+        )
+    assert response.status_code == 403
