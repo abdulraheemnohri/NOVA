@@ -32,6 +32,7 @@ from nova.settings_preferences import router as settings_preferences_router
 from nova.security import LocalRateLimiter
 from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router
+from nova.self_improvement import router as self_improvement_router
 from nova.autonomy import router as autonomy_router
 from nova.updates import router as updates_router, start_worker as start_update_worker, stop_worker as stop_update_worker
 from nova.whatsapp import router as whatsapp_router
@@ -98,6 +99,7 @@ app.include_router(system_router)
 app.include_router(settings_preferences_router)
 app.include_router(identity_router)
 app.include_router(agent_tools_router)
+app.include_router(self_improvement_router)
 app.include_router(autonomy_router)
 app.include_router(updates_router)
 app.include_router(whatsapp_router)
