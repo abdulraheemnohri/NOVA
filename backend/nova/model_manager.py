@@ -105,6 +105,21 @@ def select_model(req: SelectModelRequest):
         else:
             raise HTTPException(404, "Model is not in the catalog or local registry.")
     fmt = candidate.get("format", "")
+    if candidate.get("file_path"):
+        artifact = Path(str(candidate["file_path"]))
+        if not artifact.is_file():
+            raise HTTPException(409, "Registered model artifact is missing; register it again after restoring the file.")
+        if fmt == "litertlm" and artifact.suffix.lower() != ".litertlm":
+            raise HTTPException(422, "LiteRT-LM selection requires a .litertlm artifact file.")
+        digest = hashlib.sha256()
+        try:
+            with artifact.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
+        except OSError as exc:
+            raise HTTPException(409, "Registered model artifact cannot be read; selection was refused.") from exc
+        if digest.hexdigest() != candidate.get("sha256"):
+            raise HTTPException(409, "Registered model checksum changed; selection was refused. Re-register only after reviewing the artifact.")
     if fmt != "litertlm":
         raise HTTPException(400, "This model type has no LiteRT-LM inference adapter; it cannot be selected for chat.")
     con = _connect()
@@ -136,6 +151,8 @@ def register_local_model(req: RegisterModelRequest):
     except OSError as exc:
         raise HTTPException(400, "Unable to read model artifact for checksum.") from exc
     actual = digest.hexdigest()
+    if req.format.lower() == "litertlm" and resolved.suffix.lower() != ".litertlm":
+        raise HTTPException(422, "LiteRT-LM artifacts must use the .litertlm file extension.")
     if req.sha256 and req.sha256.lower() != actual:
         raise HTTPException(422, "SHA-256 mismatch; model was not registered.")
     con = _connect()
