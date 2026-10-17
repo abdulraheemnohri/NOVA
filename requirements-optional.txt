@@ -1,0 +1,7 @@
+# Optional task-specific libraries. These are NOT chat inference runtimes.
+# Install only when you need the corresponding adapter and your platform supports it.
+# CPU ONNX Runtime for future/local ONNX task adapters:
+onnxruntime>=1.18,<2
+# Optional document/image utilities for future OCR and ingestion adapters:
+Pillow>=10,<13
+pypdf>=5,<7

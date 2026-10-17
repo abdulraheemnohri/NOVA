@@ -3,7 +3,11 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 .env
 data/
 frontend/node_modules/
 frontend/dist/
+dist-packages/
+*.egg-info/

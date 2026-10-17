@@ -1,0 +1,64 @@
+# Development, dependencies and scripts
+
+NOVA targets Python 3.11+ and Node.js 18+ on Debian/Ubuntu. It is local-first, uses SQLite by default, has no Docker requirement, and does not require a cloud AI key.
+
+## Dependency files
+
+- `requirements.txt`: core backend runtime packages. Kept aligned with `pyproject.toml`.
+- `requirements-dev.txt`: core packages plus pytest, httpx and Ruff for development and CI.
+- `requirements-optional.txt`: optional ONNX/document/image libraries for task-specific adapters. They are not required to start NOVA and do not enable chat inference through ONNX.
+- `frontend/package.json`: frontend dependencies. Run npm commands from `frontend/` or use `npm --prefix frontend ...`.
+
+Use an isolated environment:
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+cp .env.example .env
+npm --prefix frontend install
+```
+
+On Debian/Ubuntu, `bash scripts/setup_debian.sh` installs system prerequisites and dependencies. It does not download models or install Docker.
+
+## Scripts
+
+| Script | Purpose |
+| --- | --- |
+| `scripts/setup_debian.sh` | Debian/Ubuntu setup, Python venv, Python packages, frontend packages and local data directories |
+| `scripts/run_backend.sh` | Starts FastAPI bound to loopback by default |
+| `scripts/run_frontend.sh` | Starts Vite bound to loopback by default |
+| `scripts/test.sh` | Runs backend tests and frontend tests when dependencies are installed |
+| `scripts/check.sh` | Compile checks, pytest, pip dependency check, Ruff, frontend tests and production build |
+| `scripts/doctor.py` | Read-only dependency, local endpoint and optional-runtime diagnostics; never prints token values |
+| `scripts/check_optional_runtimes.sh` | Reports local CLI/model presence without installing or launching engines |
+| `scripts/package_source.sh` | Builds a source archive while excluding local secrets, model data, virtualenv and caches |
+
+Run scripts with `bash scripts/<name>.sh`; they are designed to work even when GitHub's file upload interface does not preserve executable bits. A Makefile provides shortcuts: `make setup`, `make backend`, `make frontend`, `make test`, `make check`, `make doctor`.
+
+## Start and verify
+
+Terminal 1:
+
+```bash
+bash scripts/run_backend.sh
+```
+
+Terminal 2:
+
+```bash
+bash scripts/run_frontend.sh
+```
+
+Then run `python scripts/doctor.py`, open the UI at `http://127.0.0.1:5173`, and paste the locally generated API token from `data/api.token` into the sign-in UI. Never publish that token or expose the API to a public interface.
+
+For backend tests without frontend dependencies, activate `.venv` and run `python -m pytest -q`. For the full local gate run `bash scripts/check.sh`.
+
+## Optional local engines
+
+Whisper.cpp and Piper are external local executables and require compatible local model/voice files. They are not Python packages and cannot be reliably installed on every CPU/OS through a generic requirements file. Configure their paths in `.env`; run `bash scripts/check_optional_runtimes.sh` to inspect availability. ONNX Runtime can be installed with `python -m pip install -r requirements-optional.txt` when needed. The app's primary chat runtime remains LiteRT-LM; no optional runtime is an automatic chat fallback.
+
+## Offline notes
+
+The source archive produced by `scripts/package_source.sh` is not a fully offline installer. To install on a disconnected machine, pre-stage compatible Python wheels, npm package cache/lock data, the LiteRT-LM runtime and model, and any optional executable/model assets for the target architecture. Do not bundle `.env`, `data/api.token`, local databases, audit logs or personal workspace data.

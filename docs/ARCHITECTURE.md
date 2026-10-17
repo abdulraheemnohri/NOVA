@@ -7,6 +7,7 @@
 - Explicit tool allowlist and approval-gated writes.
 - Local model registry, hardware profiles and optional Hugging Face Hub discovery/download.
 - Read-only diagnostics endpoint (`GET /api/diagnostics`) and dashboard page for endpoint/model visibility, host information, audit integrity and explicit compatibility limits.
+- Task-scoped runtime inventory (`GET /api/runtimes`) for LiteRT-LM, whisper.cpp, Piper, ONNX Runtime, TFLite/LiteRT Python packages, llama.cpp and Transformers. Only the whisper.cpp WAV transcription adapter currently executes an additional model runtime; other entries are discovery-only.
 
 ## Model management
 
