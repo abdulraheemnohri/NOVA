@@ -23,7 +23,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Autonomous planner now preflights every proposed step and exact tool input schema before any execution; invalid arithmetic, unexpected fields, unsupported tools, overlong inputs, and malformed reasons reject the whole plan before partial execution. Operators can request cancellation of a running workflow; cancellation is persisted and observed between tool steps, with a terminal cancelled state and audit event.\n\n## Newly implemented self-improvement foundation
 - Persisted self-created skills with bounded Markdown instructions, tags, draft-by-default lifecycle, explicit activation, versioning, and audit events.
 - Self-created tool proposals are declarative only: proposals must map exactly to existing bounded calculator or local knowledge-search primitives and their fixed input schemas. Proposals require a separate review transition; generated code is never executed and model output cannot register a new runtime capability.
-- API endpoints are under `/api/self/skills` and `/api/self/tools`; user-interface management and controlled skill execution remain follow-up work.
+- API endpoints are under `/api/self/skills` and `/api/self/tools`; the Self-Improvement Lab UI supports creation and review. Skill execution accepts explicit structured steps only, preflights every step, limits runs to five calls to existing calculator/local knowledge-search primitives, persists run history, and emits audit events. Natural-language instructions are not interpreted as executable plans.
 
 ## Newly implemented hardening
 - Process-local API request rate limiting and a separate failed-authentication budget, with basic response security headers. This is single-process defense in depth, not multi-user RBAC or an edge limiter.
@@ -38,7 +38,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 7. Streaming audio and adversarial content-isolation tests. Scanned-PDF OCR is now opt-in and requires Poppler + Tesseract. PDF/DOCX text extraction, explicit Tesseract image OCR, and opt-in scanned-PDF OCR are supported when their optional local dependencies are installed.
 8. Broader operational settings validation and safe editable settings persistence; the bounded workbench preference subset is implemented.
 9. Multi-user RBAC, CSRF protections for browser-session deployments, persistent/distributed rate-limit storage and encrypted sensitive storage.
-10. Workflow builder, multi-agent state machine, critic/verifier, prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware.
+10. Workflow builder, multi-agent state machine, critic/verifier, prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware. Skill execution currently has a deliberately small allowlist and does not execute arbitrary generated code.
 
 ## Definition of done
 A feature is complete only when API, UI controls, persistence, permission checks, audit events, tests, docs, and offline behavior exist and pass CI. Never claim GPU/NPU or model compatibility without a real target-device test.

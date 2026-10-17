@@ -14,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nova.audit import append_audit
 from nova.config import settings
+from nova.agent_tools import calculator
+from nova.knowledge import SearchRequest, search_knowledge
 
 router = APIRouter(prefix="/api/self", tags=["self improvement"])
 SAFE_PRIMITIVES = {
@@ -31,6 +33,11 @@ def db():
         instructions TEXT NOT NULL, tags_json TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'draft', version INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+    con.execute("""CREATE TABLE IF NOT EXISTS self_skill_runs(
+        id TEXT PRIMARY KEY, skill_id TEXT NOT NULL, status TEXT NOT NULL,
+        steps_json TEXT NOT NULL, results_json TEXT NOT NULL, error TEXT,
+        created_at TEXT NOT NULL, finished_at TEXT,
+        FOREIGN KEY(skill_id) REFERENCES self_skills(id))""")
     con.execute("""CREATE TABLE IF NOT EXISTS self_tool_proposals(
         id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL,
         primitive TEXT NOT NULL, input_schema_json TEXT NOT NULL,
@@ -195,3 +202,123 @@ def review_tool_proposal(tool_id: str):
     append_audit(settings.audit_path, "self.tool.reviewed", {"tool_id": tool_id, "primitive": row["primitive"],
         "status": "reviewed", "executable_generated_code": False})
     return row_tool(row)
+
+
+class SkillStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tool: str = Field(min_length=1, max_length=60)
+    input: dict[str, str] = Field(min_length=1, max_length=1)
+
+
+class SkillRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    steps: list[SkillStep] = Field(min_length=1, max_length=5)
+
+
+def _validate_step(step: SkillStep) -> dict:
+    if step.tool == "calculator":
+        if set(step.input) != {"expression"}:
+            raise HTTPException(422, "Calculator step requires exactly the expression field.")
+        expression = step.input["expression"]
+        if len(expression) > 256:
+            raise HTTPException(422, "Calculator expression is too long.")
+        try:
+            calculator(expression)
+        except (ValueError, SyntaxError, ZeroDivisionError, OverflowError) as exc:
+            raise HTTPException(422, f"Invalid calculator step: {exc}") from exc
+        return {"tool": step.tool, "input": {"expression": expression}}
+    if step.tool == "knowledge_search":
+        if set(step.input) != {"query"}:
+            raise HTTPException(422, "Knowledge search step requires exactly the query field.")
+        query = step.input["query"].strip()
+        if not query or len(query) > 1000:
+            raise HTTPException(422, "Knowledge query must contain 1–1000 characters.")
+        return {"tool": step.tool, "input": {"query": query}}
+    raise HTTPException(422, "Unsupported skill tool; default deny.")
+
+
+@router.get("/skills/{skill_id}/runs")
+def list_skill_runs(skill_id: str):
+    con = db()
+    try:
+        if con.execute("SELECT 1 FROM self_skills WHERE id=?", (skill_id,)).fetchone() is None:
+            raise HTTPException(404, "Skill not found.")
+        rows = con.execute(
+            "SELECT * FROM self_skill_runs WHERE skill_id=? ORDER BY created_at DESC LIMIT 50",
+            (skill_id,),
+        ).fetchall()
+        runs = []
+        for row in rows:
+            item = dict(row)
+            item["steps"] = json.loads(item.pop("steps_json"))
+            item["results"] = json.loads(item.pop("results_json"))
+            runs.append(item)
+        return {"runs": runs}
+    finally:
+        con.close()
+
+
+@router.post("/skills/{skill_id}/run", status_code=201)
+def run_skill(skill_id: str, req: SkillRunRequest):
+    # Validate the entire structured plan before running any step. Only safe
+    # read-only primitives are supported; natural-language skill text is not code.
+    planned = [_validate_step(step) for step in req.steps]
+    con = db()
+    try:
+        skill = con.execute("SELECT id,name,status,version FROM self_skills WHERE id=?", (skill_id,)).fetchone()
+    finally:
+        con.close()
+    if skill is None:
+        raise HTTPException(404, "Skill not found.")
+    if skill["status"] != "active":
+        raise HTTPException(409, "Only active skills can run.")
+    run_id = str(uuid.uuid4())
+    timestamp = now()
+    con = db()
+    try:
+        con.execute(
+            "INSERT INTO self_skill_runs(id,skill_id,status,steps_json,results_json,created_at) VALUES(?,?,'running',?,'[]',?)",
+            (run_id, skill_id, json.dumps(planned), timestamp),
+        )
+        con.commit()
+    finally:
+        con.close()
+    results = []
+    try:
+        for step in planned:
+            if step["tool"] == "calculator":
+                result = {"result": calculator(step["input"]["expression"])}
+            else:
+                result = search_knowledge(SearchRequest(query=step["input"]["query"], limit=5))
+            results.append({"tool": step["tool"], "result": result})
+        finished = now()
+        con = db()
+        try:
+            con.execute(
+                "UPDATE self_skill_runs SET status='succeeded',results_json=?,finished_at=? WHERE id=? AND status='running'",
+                (json.dumps(results, ensure_ascii=False, default=str), finished, run_id),
+            )
+            con.commit()
+        finally:
+            con.close()
+        append_audit(settings.audit_path, "self.skill.run_succeeded", {
+            "run_id": run_id, "skill_id": skill_id, "skill_version": skill["version"],
+            "step_count": len(planned), "tools": [step["tool"] for step in planned],
+        })
+        return {"run_id": run_id, "skill_id": skill_id, "status": "succeeded", "results": results}
+    except Exception as exc:
+        finished = now()
+        con = db()
+        try:
+            con.execute(
+                "UPDATE self_skill_runs SET status='failed',results_json=?,error=?,finished_at=? WHERE id=? AND status='running'",
+                (json.dumps(results, ensure_ascii=False, default=str), str(exc)[:500], finished, run_id),
+            )
+            con.commit()
+        finally:
+            con.close()
+        append_audit(settings.audit_path, "self.skill.run_failed", {
+            "run_id": run_id, "skill_id": skill_id, "completed_steps": len(results),
+            "error_type": type(exc).__name__,
+        })
+        raise HTTPException(422, "Skill run failed; inspect run history for completed safe steps.") from exc
