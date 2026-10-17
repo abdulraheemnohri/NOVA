@@ -8,9 +8,11 @@ from pydantic import BaseModel, Field
 from nova.audit import append_audit, verify_audit
 from nova.config import settings
 from nova.litert import LiteRTError, chat, health
-from nova.policy import evaluate_tool\nfrom nova.knowledge import router as knowledge_router, initialize_knowledge\napp.include_router(knowledge_router)
+from nova.policy import evaluate_tool
+from nova.knowledge import router as knowledge_router, initialize_knowledge
 
 app=FastAPI(title="NOVA — Neural Offline Verified Agent",version="0.1.0")
+app.include_router(knowledge_router)
 app.add_middleware(CORSMiddleware,allow_origins=["http://127.0.0.1:5173","http://localhost:5173","http://127.0.0.1:4173"],allow_credentials=False,allow_methods=["GET","POST"],allow_headers=["Content-Type"])
 class ChatRequest(BaseModel):
     message: str=Field(min_length=1,max_length=20000)
