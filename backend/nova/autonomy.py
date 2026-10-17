@@ -1,4 +1,4 @@
-import json,re,sqlite3
+import json,re,sqlite3,uuid
 from datetime import datetime,timezone
 from fastapi import APIRouter,HTTPException
 from pydantic import BaseModel,Field,ConfigDict
@@ -17,7 +17,12 @@ class Goal(BaseModel):
  model_config=ConfigDict(extra="forbid")
  goal:str=Field(min_length=3,max_length=2000);max_steps:int=Field(default=4,ge=1,le=8)
 def db():
- settings.database_path.parent.mkdir(parents=True,exist_ok=True);c=sqlite3.connect(settings.database_path,timeout=10);c.row_factory=sqlite3.Row;c.execute("CREATE TABLE IF NOT EXISTS nova_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL)");return c
+ settings.database_path.parent.mkdir(parents=True,exist_ok=True);c=sqlite3.connect(settings.database_path,timeout=10);c.row_factory=sqlite3.Row;c.execute("CREATE TABLE IF NOT EXISTS nova_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL)")
+ c.execute("""CREATE TABLE IF NOT EXISTS autonomy_runs(
+ id TEXT PRIMARY KEY,task_id TEXT NOT NULL,goal TEXT NOT NULL,status TEXT NOT NULL,
+ plan_json TEXT NOT NULL,steps_json TEXT NOT NULL,verification_json TEXT NOT NULL,
+ current_step INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)""")
+ c.commit();return c
 def cfg():
  c=db()
  try:r={x["key"]:x["value"] for x in c.execute("SELECT key,value FROM nova_settings WHERE key LIKE 'autonomy_%'").fetchall()}
@@ -47,18 +52,59 @@ def plan(goal,n):
  return ss
 @router.post("/plan")
 def plan_only(req:Goal):return {"goal":req.goal,"steps":plan(req.goal,req.max_steps),"tools_executed":0}
+def save_run(run_id,task_id,goal,status,steps,plan_steps,verification,current_step,created_at):
+ c=db()
+ try:
+  c.execute("""INSERT INTO autonomy_runs(id,task_id,goal,status,plan_json,steps_json,verification_json,current_step,created_at,updated_at)
+  VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,steps_json=excluded.steps_json,
+  verification_json=excluded.verification_json,current_step=excluded.current_step,updated_at=excluded.updated_at""",
+  (run_id,task_id,goal,status,json.dumps(plan_steps),json.dumps(steps),json.dumps(verification),current_step,created_at,datetime.now(timezone.utc).isoformat()))
+  c.commit()
+ finally:c.close()
+def run_view(row):
+ item=dict(row)
+ for key in ("plan_json","steps_json","verification_json"):
+  item[key.removesuffix("_json")]=json.loads(item.pop(key))
+ return item
+@router.get("/runs")
+def run_history(limit:int=10):
+ if limit<1 or limit>100:raise HTTPException(422,"limit must be between 1 and 100.")
+ c=db()
+ try:rows=c.execute("SELECT * FROM autonomy_runs ORDER BY created_at DESC LIMIT ?",(limit,)).fetchall()
+ finally:c.close()
+ return [run_view(r) for r in rows]
+@router.get("/runs/{run_id}")
+def run_detail(run_id:str):
+ c=db()
+ try:row=c.execute("SELECT * FROM autonomy_runs WHERE id=?",(run_id,)).fetchone()
+ finally:c.close()
+ if row is None:raise HTTPException(404,"Autonomy run not found.")
+ return run_view(row)
+@router.post("/plan")
+def plan_only(req:Goal):return {"goal":req.goal,"steps":plan(req.goal,req.max_steps),"tools_executed":0}
 @router.post("/run")
 def run(req:Goal):
  c=cfg()
  if not c["enabled"]:raise HTTPException(409,"Autonomy disabled by default.")
- ss=plan(req.goal,min(req.max_steps,c["max_steps"]));task=create_task(TaskCreate(title=req.goal[:200],description=req.goal,plan=[x["tool"] for x in ss],max_attempts=1));tid=task["id"]
- update_task_status(tid,TaskStatusUpdate(status="planned"));update_task_status(tid,TaskStatusUpdate(status="in_progress"));out=[]
+ ss=plan(req.goal,min(req.max_steps,c["max_steps"]))
+ task=create_task(TaskCreate(title=req.goal[:200],description=req.goal,plan=[x["tool"] for x in ss],max_attempts=1));tid=task["id"]
+ update_task_status(tid,TaskStatusUpdate(status="planned"));update_task_status(tid,TaskStatusUpdate(status="in_progress"))
+ run_id=str(uuid.uuid4());created=datetime.now(timezone.utc).isoformat();out=[];verification={"verified":False,"summary":"Not verified."}
+ save_run(run_id,tid,req.goal,"running",out,ss,verification,0,created)
  for i,s in enumerate(ss):
-  try:out.append({"step":i+1,"ok":True,"result":execute(type("CallProxy",(),{"name":s["tool"],"input":s.get("input",{})})())})
-  except Exception as e:out.append({"step":i+1,"ok":False,"error":str(e)[:200]});break
- verified=False;summary="Not verified."
+  try:out.append({"step":i+1,"tool":s["tool"],"reason":str(s.get("reason",""))[:300],"ok":True,"result":execute(type("CallProxy",(),{"name":s["tool"],"input":s.get("input",{})})())})
+  except Exception as e:out.append({"step":i+1,"tool":s.get("tool","unknown"),"ok":False,"error":str(e)[:200]})
+  save_run(run_id,tid,req.goal,"running",out,ss,verification,i+1,created)
+  if not out[-1]["ok"]:break
  if c["verify_results"]:
-  try:v=obj(chat(compose_prompt('Verify using only these outputs. JSON {"verified":boolean,"summary":"..."}. Goal: '+req.goal+" Outputs: "+json.dumps(out,default=str)[:6000]),400));verified=v.get("verified") is True;summary=str(v.get("summary",""))[:500]
-  except Exception:summary="Verifier failed; not verified."
- done=bool(out) and all(x["ok"] for x in out) and (verified if c["verify_results"] else True);result={"goal":req.goal,"steps":out,"verification":{"verified":verified,"summary":summary},"completed":done}
- update_task_status(tid,TaskStatusUpdate(status="completed" if done else "failed",result=json.dumps(result)[:20000]));append_audit(settings.audit_path,"autonomy.finished",{"task_id":tid,"completed":done,"verified":verified});return {"task_id":tid,**result}
+  try:
+   v=obj(chat(compose_prompt('Verify using only these outputs. JSON {"verified":boolean,"summary":"..."}. Goal: '+req.goal+" Outputs: "+json.dumps(out,default=str)[:6000]),400))
+   verification={"verified":v.get("verified") is True,"summary":str(v.get("summary",""))[:500]}
+  except Exception:verification={"verified":False,"summary":"Verifier failed; not verified."}
+ done=bool(out) and all(x["ok"] for x in out) and (verification["verified"] if c["verify_results"] else True)
+ result={"goal":req.goal,"steps":out,"verification":verification,"completed":done}
+ final_status="completed" if done else "failed"
+ save_run(run_id,tid,req.goal,final_status,out,ss,verification,len(out),created)
+ update_task_status(tid,TaskStatusUpdate(status=final_status,result=json.dumps(result)[:20000]))
+ append_audit(settings.audit_path,"autonomy.finished",{"run_id":run_id,"task_id":tid,"completed":done,"verified":verification["verified"]})
+ return {"run_id":run_id,"task_id":tid,**result}
