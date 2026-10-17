@@ -41,7 +41,7 @@ def main() -> int:
     print("NOVA environment doctor (read-only)")
     print(f"Repository: {ROOT}")
     print(f"Python: {sys.version.split()[0]} ({sys.executable})")
-    if sys.version_info < (3, 11):
+    if sys.version_info < (3, 11):  # noqa: UP036 -- report unsupported Python versions clearly
         print("FAIL Python 3.11 or newer is required")
         failures += 1
     else:
