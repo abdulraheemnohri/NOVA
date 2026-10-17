@@ -1,11 +1,10 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: dark;
-  font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: #070b14;
   color: #edf3ff;
   font-synthesis: none;
@@ -28,7 +27,7 @@ body {
     var(--nova-bg);
 }
 body, button, input, textarea { font-family: 'DM Sans', ui-sans-serif, system-ui, sans-serif; }
-h1, h2, h3 { font-family: 'Space Grotesk', 'DM Sans', sans-serif; letter-spacing: -.025em; }
+h1, h2, h3 { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; letter-spacing: -.025em; }
 button { cursor: pointer; transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease; }
 button:hover:not(:disabled) { transform: translateY(-1px); }
 button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--nova-cyan); outline-offset: 3px; }
@@ -51,7 +50,7 @@ aside {
   border-color: rgba(155, 180, 220, .11) !important;
   backdrop-filter: blur(24px);
 }
-aside .font-bold { font-family: 'Space Grotesk', sans-serif; }
+aside .font-bold { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 main > header { padding-bottom: 1.25rem; border-bottom: 1px solid rgba(155,180,220,.11); }
 main > header h1 { font-size: clamp(1.75rem, 3vw, 2.45rem); letter-spacing: -.055em; }
 main > header .text-cyan-300 { font-size: .7rem; font-weight: 700; letter-spacing: .19em; }
