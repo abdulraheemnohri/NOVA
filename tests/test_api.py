@@ -15,7 +15,7 @@ def test_health_is_litert_only():
 
 
 def test_unknown_approval_is_denied():
-    with TestClient(app) as client:
+    with _client() as client:
         response = client.post(
             "/api/approvals",
             json={"action": "arbitrary_shell", "payload": {}, "reason": "test"},
@@ -159,3 +159,18 @@ def test_rollback_requires_matching_approval(monkeypatch, tmp_path):
         )
         assert mismatch.status_code == 403
         assert (settings.workspace / "rollback-check.txt").read_text(encoding="utf-8") == "created"
+
+
+def test_protected_api_rejects_missing_token():
+    with TestClient(app) as client:
+        response = client.get("/api/approvals")
+    assert response.status_code == 401
+
+
+def test_generated_token_is_private(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client():
+        pass
+    import os
+    if os.name == "posix":
+        assert settings.api_token_file.stat().st_mode & 0o777 == 0o600
