@@ -45,6 +45,24 @@ def _approve_write(client, relative_path: str, content: str) -> str:
     return approval_id
 
 
+
+
+def _approve_rollback(client, snapshot_id: str) -> str:
+    created = client.post(
+        "/api/approvals",
+        json={
+            "action": "rollback_snapshot",
+            "payload": {"snapshot_id": snapshot_id},
+            "reason": "test approved rollback",
+        },
+    )
+    assert created.status_code == 200, created.text
+    approval_id = created.json()["id"]
+    decision = client.post(f"/api/approvals/{approval_id}/decision?decision=approve")
+    assert decision.status_code == 200, decision.text
+    return approval_id
+
+
 def test_write_snapshot_and_rollback_restores_previous_file(monkeypatch, tmp_path):
     _configure_temp_store(monkeypatch, tmp_path)
     original = settings.workspace / "report.txt"
@@ -65,7 +83,8 @@ def test_write_snapshot_and_rollback_restores_previous_file(monkeypatch, tmp_pat
         )
         assert replay.status_code == 403, "an approved write token must be single-use"
 
-        restored = client.post("/api/workspace/rollback", json={"snapshot_id": snapshot_id})
+        rollback_approval = _approve_rollback(client, snapshot_id)
+        restored = client.post("/api/workspace/rollback", json={"snapshot_id": snapshot_id, "approval_id": rollback_approval})
         assert restored.status_code == 200, restored.text
         assert original.read_text(encoding="utf-8") == "original"
         assert client.post("/api/workspace/rollback", json={"snapshot_id": snapshot_id}).status_code == 409
@@ -82,9 +101,10 @@ def test_rollback_removes_file_created_by_write(monkeypatch, tmp_path):
         assert written.status_code == 200, written.text
         target = settings.workspace / "new.txt"
         assert target.exists()
+        rollback_approval = _approve_rollback(client, written.json()["snapshot_id"])
         rolled_back = client.post(
             "/api/workspace/rollback",
-            json={"snapshot_id": written.json()["snapshot_id"]},
+            json={"snapshot_id": written.json()["snapshot_id"], "approval_id": rollback_approval},
         )
         assert rolled_back.status_code == 200, rolled_back.text
         assert not target.exists()
@@ -98,3 +118,30 @@ def test_workspace_write_rejects_path_traversal(monkeypatch, tmp_path):
             json={"relative_path": "../outside.txt", "content": "nope"},
         )
     assert response.status_code == 403
+
+
+def test_rollback_requires_matching_approval(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with TestClient(app) as client:
+        approval_id = _approve_write(client, "rollback-check.txt", "created")
+        written = client.post(
+            "/api/workspace/write",
+            json={"relative_path": "rollback-check.txt", "content": "created", "approval_id": approval_id},
+        )
+        assert written.status_code == 200, written.text
+        snapshot_id = written.json()["snapshot_id"]
+        denied = client.post("/api/workspace/rollback", json={"snapshot_id": snapshot_id, "approval_id": "missing"})
+        assert denied.status_code == 403
+        wrong = client.post(
+            "/api/approvals",
+            json={"action": "rollback_snapshot", "payload": {"snapshot_id": "different"}, "reason": "wrong target"},
+        )
+        assert wrong.status_code == 200
+        wrong_id = wrong.json()["id"]
+        assert client.post(f"/api/approvals/{wrong_id}/decision?decision=approve").status_code == 200
+        mismatch = client.post(
+            "/api/workspace/rollback",
+            json={"snapshot_id": snapshot_id, "approval_id": wrong_id},
+        )
+        assert mismatch.status_code == 403
+        assert (settings.workspace / "rollback-check.txt").read_text(encoding="utf-8") == "created"
