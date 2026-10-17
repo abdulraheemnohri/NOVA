@@ -58,6 +58,7 @@ def runtime_inventory() -> dict[str, Any]:
     llama_server = _resolve_executable(settings.llama_cpp_server_path, ("llama-server",))
     whisper_model = settings.whisper_model_path.expanduser()
     piper_model = settings.piper_model_path.expanduser()
+    piper_metadata = Path(str(piper_model) + ".json")
     litert = litert_health()
     onnx_available = settings.onnxruntime_enabled and _module_available("onnxruntime")
     tflite_available = _module_available("tflite_runtime") or _module_available("ai_edge_litert")
@@ -86,9 +87,10 @@ def runtime_inventory() -> dict[str, Any]:
             "purpose": "Local text-to-speech", "role": "text_to_speech",
             "detected": piper_cli is not None, "executable": piper_cli,
             "model_path": str(piper_model), "model_present": piper_model.is_file(),
+            "model_metadata_present": piper_metadata.is_file(),
             "configured": bool(settings.piper_cli_path or piper_cli),
-            "status": "ready" if piper_cli and piper_model.is_file() else "needs_setup",
-            "policy": "Discovery only in this release; no TTS generation endpoint yet.",
+            "status": "ready" if piper_cli and piper_model.is_file() and piper_metadata.is_file() else "needs_setup",
+            "policy": "Used only by the explicit local speech synthesis endpoint."
         },
         {
             "id": "onnx-runtime", "name": "ONNX Runtime",
