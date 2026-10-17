@@ -15,7 +15,7 @@ type Data={
  tpu:{detected:boolean;device_nodes:string[];telemetry:string};
  notes:string[];
 };
-function bytes(value?:number){if(value===undefined)return "Unavailable";const units=["B","KB","MB","GB","TB"];let n=value,i=0;while(n>=1024&&i<units.length-1){n/=1024;i++}return n.toFixed(i>1?1:0)+" "+units[i]}
+function bytes(value?:number|null){if(value===undefined)return "Unavailable";const units=["B","KB","MB","GB","TB"];let n=value,i=0;while(n>=1024&&i<units.length-1){n/=1024;i++}return n.toFixed(i>1?1:0)+" "+units[i]}
 function pct(value?:number){return value===undefined?"Unavailable":value.toFixed(1)+"%"}
 function Progress({value}:{value:number}){return <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-cyan-300 transition-all" style={{width:Math.max(0,Math.min(100,value))+"%"}}/></div>}
 function Tile({title,icon:Icon,children}:{title:string;icon:typeof Cpu;children:React.ReactNode}){return <section className="panel min-w-0 p-5"><div className="flex items-center gap-2 text-sm font-semibold text-slate-200"><Icon size={17} className="text-cyan-200"/>{title}</div><div className="mt-4">{children}</div></section>}
