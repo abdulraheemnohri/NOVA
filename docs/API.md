@@ -51,3 +51,8 @@ A workspace rollback is a high-risk action. Create an approval with action `roll
 - `GET /self/skills`, `POST /self/skills`, `POST /self/skills/{id}/activate`: persist and explicitly activate user-reviewed skill instructions. Instructions are stored as data and are not interpreted as code.
 - `GET /self/tools`, `POST /self/tools`, `POST /self/tools/{id}/review`: list, propose, and review tools limited to existing calculator and local knowledge-search primitives with exact fixed schemas. Review does not register new capabilities or execute generated code.
 - These endpoints are under `/api`; the normal local bearer-token and audit-integrity middleware applies.
+
+
+## Controlled skill execution
+- `POST /self/skills/{skill_id}/run` accepts 1–5 structured steps; current primitives are `calculator` (`expression`) and `knowledge_search` (`query`). All steps are preflighted before execution. Only active skills can run.
+- `GET /self/skills/{skill_id}/runs` returns recent persisted run history. Run instructions are not executed as code; the caller supplies structured steps explicitly.
