@@ -1,6 +1,6 @@
 # Security Model
 
-Model output is untrusted and cannot authorize itself. Backend tool policy defaults to deny. Writes and destructive rollback require separate approved records tied to the exact action payload. Paths are resolved and constrained to the workspace. The inference adapter rejects non-loopback endpoints and never falls back to another runtime.
+Model output is untrusted and cannot authorize itself. Backend tool policy defaults to deny. Writes and destructive rollback require separate approved records tied to the exact action payload. Paths are resolved and constrained to the workspace; workspace paths and the internal snapshot store reject symbolic links. This reduces symlink escapes but is not a race-free filesystem sandbox; production deployments should use directory-file-descriptor/openat-style operations. The inference adapter rejects non-loopback endpoints and never falls back to another runtime.
 
 ## Hugging Face Hub access
 
