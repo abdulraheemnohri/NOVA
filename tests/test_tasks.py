@@ -44,3 +44,67 @@ def test_task_rejects_invalid_transition_and_timezone(tmp_path, monkeypatch):
         assert invalid.status_code == 409
         due = client.post("/api/tasks", headers=headers, json={"title": "B", "due_at": "2026-10-17T12:00:00"})
         assert due.status_code == 422
+
+
+
+def test_task_retry_budget_is_enforced(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        created = client.post("/api/tasks", headers=headers, json={
+            "title": "Bounded retry task", "max_attempts": 2
+        })
+        assert created.status_code == 201
+        task = created.json()
+        assert task["attempts"] == 0
+        assert task["max_attempts"] == 2
+
+        def transition(status, expected=200):
+            response = client.post(
+                f"/api/tasks/{task['id']}/status", headers=headers,
+                json={"status": status, "result": "test failure" if status == "failed" else None},
+            )
+            assert response.status_code == expected, response.text
+            return response
+
+        transition("planned")
+        assert transition("in_progress").json()["attempts"] == 1
+        transition("failed")
+        transition("queued")
+        transition("planned")
+        assert transition("in_progress").json()["attempts"] == 2
+        transition("failed")
+        transition("queued", 409)
+        transition("in_progress", 409)
+        current = client.get("/api/tasks", headers=headers).json()[0]
+        assert current["status"] == "failed"
+        assert current["attempts"] == current["max_attempts"] == 2
+
+
+def test_task_retry_budget_validation_and_legacy_migration(tmp_path, monkeypatch):
+    import sqlite3
+    from nova.config import settings
+
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        invalid = client.post("/api/tasks", headers=headers, json={
+            "title": "Invalid retry budget", "max_attempts": 11
+        })
+        assert invalid.status_code == 422
+
+    legacy_path = tmp_path / "legacy.sqlite3"
+    con = sqlite3.connect(legacy_path)
+    con.execute("""CREATE TABLE tasks (
+        id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'queued', priority TEXT NOT NULL DEFAULT 'normal',
+        due_at TEXT, plan_json TEXT NOT NULL DEFAULT '[]', result TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    )""")
+    con.commit()
+    con.close()
+    monkeypatch.setattr(settings, "database_path", legacy_path)
+    from nova.tasks import _connect
+    migrated = _connect()
+    try:
+        columns = {row[1] for row in migrated.execute("PRAGMA table_info(tasks)")}
+        assert migrated.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0
+    finally:
+        migrated.close()
+    assert "max_attempts" in columns

@@ -35,8 +35,12 @@ def _connect() -> sqlite3.Connection:
         id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'queued', priority TEXT NOT NULL DEFAULT 'normal',
         due_at TEXT, plan_json TEXT NOT NULL DEFAULT '[]', result TEXT,
-        attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 3,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     )""")
+    columns = {str(row[1]) for row in con.execute("PRAGMA table_info(tasks)").fetchall()}
+    if "max_attempts" not in columns:
+        con.execute("ALTER TABLE tasks ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 3")
     con.commit()
     return con
 
@@ -57,6 +61,7 @@ class TaskCreate(BaseModel):
     priority: Literal["low", "normal", "high", "urgent"] = "normal"
     due_at: str | None = Field(default=None, max_length=80)
     plan: list[str] = Field(default_factory=list, max_length=50)
+    max_attempts: int = Field(default=3, ge=1, le=10)
 
 class TaskStatusUpdate(BaseModel):
     status: Literal["queued", "planned", "in_progress", "completed", "failed", "cancelled"]
@@ -92,9 +97,9 @@ def create_task(req: TaskCreate):
     con = _connect()
     try:
         con.execute(
-            "INSERT INTO tasks(id,title,description,status,priority,due_at,plan_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO tasks(id,title,description,status,priority,due_at,plan_json,attempts,max_attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (task_id, title, req.description.strip(), "queued", req.priority, due_at,
-             json.dumps([step.strip() for step in req.plan]), now, now),
+             json.dumps([step.strip() for step in req.plan]), 0, req.max_attempts, now, now),
         )
         con.commit()
         row = con.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
@@ -112,7 +117,9 @@ def create_task(req: TaskCreate):
 def update_task_status(task_id: str, req: TaskStatusUpdate):
     con = _connect()
     try:
-        row = con.execute("SELECT status, attempts FROM tasks WHERE id=?", (task_id,)).fetchone()
+        # Serialize read/validate/write so concurrent requests cannot exceed the retry cap.
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute("SELECT status, attempts, max_attempts FROM tasks WHERE id=?", (task_id,)).fetchone()
         if row is None:
             raise HTTPException(404, "Task not found.")
         old_status = str(row["status"])
@@ -120,12 +127,20 @@ def update_task_status(task_id: str, req: TaskStatusUpdate):
             return {"id": task_id, "status": old_status, "unchanged": True}
         if req.status not in TRANSITIONS[old_status]:
             raise HTTPException(409, f"Invalid task transition: {old_status} -> {req.status}.")
+        attempts_before = int(row["attempts"])
+        max_attempts = int(row["max_attempts"])
+        if req.status == "in_progress" and attempts_before >= max_attempts:
+            raise HTTPException(409, f"Task exhausted its retry budget ({attempts_before}/{max_attempts}) and cannot be started again.")
+        if old_status == "failed" and req.status == "queued" and attempts_before >= max_attempts:
+            raise HTTPException(409, f"Task exhausted its retry budget ({attempts_before}/{max_attempts}) and cannot be retried.")
         now = datetime.now(timezone.utc).isoformat()
-        attempts = int(row["attempts"]) + (1 if req.status == "in_progress" else 0)
-        con.execute(
+        attempts = attempts_before + (1 if req.status == "in_progress" else 0)
+        updated = con.execute(
             "UPDATE tasks SET status=?, result=COALESCE(?, result), attempts=?, updated_at=? WHERE id=? AND status=?",
             (req.status, req.result, attempts, now, task_id, old_status),
         )
+        if updated.rowcount != 1:
+            raise HTTPException(409, "Task state changed concurrently; reload and retry.")
         con.commit()
     finally:
         con.close()
