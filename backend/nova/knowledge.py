@@ -65,8 +65,8 @@ def import_document(req:DocumentImport):
     digest=hashlib.sha256(content.encode()).hexdigest()
     con=_connect()
     try:
-        existing=con.execute("SELECT id FROM documents WHERE content_sha256=?",(digest,)).fetchone()
-        if existing: return {"id":existing["id"],"duplicate":True,"chunks":con.execute("SELECT count(*) FROM document_chunks WHERE document_id=?",(existing["id"],)).fetchone()[0]}
+        existing=con.execute("SELECT id,source_name FROM documents WHERE content_sha256=?",(digest,)).fetchone()
+        if existing: return {"id":existing["id"],"source_name":existing["source_name"],"duplicate":True,"chunks":con.execute("SELECT count(*) FROM document_chunks WHERE document_id=?",(existing["id"],)).fetchone()[0],"retrieval":"local keyword search; no embeddings"}
         doc_id=str(uuid.uuid4()); now=datetime.now(timezone.utc).isoformat()
         con.execute("INSERT INTO documents VALUES(?,?,?,?)",(doc_id,req.source_name,digest,now))
         chunks=_chunks(content)
