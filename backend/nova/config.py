@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     litert_base_url: str = "http://127.0.0.1:9379/v1"
     litert_model: str = "local-model"
     whisper_cli_path: str = ""
+    ffmpeg_cli_path: str = ""
     whisper_model_path: Path = Path("./data/models/whisper/ggml-base.bin")
     whisper_timeout_seconds: int = 180
     whisper_max_upload_bytes: int = 25000000
