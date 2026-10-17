@@ -59,6 +59,11 @@ def test_write_snapshot_and_rollback_restores_previous_file(monkeypatch, tmp_pat
         assert written.status_code == 200, written.text
         snapshot_id = written.json()["snapshot_id"]
         assert original.read_text(encoding="utf-8") == content
+        replay = client.post(
+            "/api/workspace/write",
+            json={"relative_path": "report.txt", "content": content, "approval_id": approval_id},
+        )
+        assert replay.status_code == 403, "an approved write token must be single-use"
 
         restored = client.post("/api/workspace/rollback", json={"snapshot_id": snapshot_id})
         assert restored.status_code == 200, restored.text
