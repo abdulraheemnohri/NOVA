@@ -46,3 +46,17 @@ def test_goal_status_rejects_unknown_goal(tmp_path, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         update_goal_status("missing-goal", GoalStatusUpdate(status="completed"))
     assert exc.value.status_code == 404
+
+
+def test_duplicate_document_import_returns_consistent_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    initialize_knowledge()
+    first = import_document(DocumentImport(source_name="manual.txt", content="same content"))
+    second = import_document(DocumentImport(source_name="another-name.txt", content="same content"))
+    assert first["duplicate"] is False
+    assert second["duplicate"] is True
+    assert second["id"] == first["id"]
+    assert second["source_name"] == "manual.txt"
+    assert second["chunks"] == first["chunks"]
+    assert second["retrieval"] == "local keyword search; no embeddings"
