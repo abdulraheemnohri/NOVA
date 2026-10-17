@@ -50,7 +50,12 @@ class _HubRedirectHandler(urllib.request.HTTPRedirectHandler):
         allowed = host == "huggingface.co" or host.endswith(".huggingface.co") or host.endswith(".hf.co") or host.endswith(".amazonaws.com")
         if parsed.scheme != "https" or not allowed:
             raise urllib.error.HTTPError(newurl, code, "Blocked untrusted Hugging Face redirect", headers, fp)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None and host != "huggingface.co" and not host.endswith(".huggingface.co"):
+            # Signed CDN URLs carry their own authorization; never forward the Hub bearer token.
+            redirected.remove_header("Authorization")
+            redirected.remove_header("authorization")
+        return redirected
 
 
 def _request(url: str, *, timeout: int = 20):
