@@ -6,7 +6,7 @@ from nova.config import settings
 from nova.audit import append_audit
 from nova.identity import compose_prompt
 from nova.litert import chat,LiteRTError
-from nova.agent_tools import execute
+from nova.agent_tools import execute,calculator
 from nova.tasks import TaskCreate,TaskStatusUpdate,create_task,update_task_status
 router=APIRouter(prefix="/api/autonomy",tags=["autonomy"])
 ALLOWED={"calculator","knowledge_search"}
@@ -41,15 +41,28 @@ def obj(s):
  s=re.sub(r"^\x60{3}(?:json)?\s*|\s*\x60{3}$","",s.strip(),flags=re.I);v=json.loads(s)
  if not isinstance(v,dict):raise ValueError("JSON object required")
  return v
+def validate_steps(ss,n):
+ if not isinstance(ss,list) or not 1<=len(ss)<=n:raise ValueError("Invalid plan length.")
+ clean=[]
+ for i,s in enumerate(ss,1):
+  if not isinstance(s,dict) or set(s)-{"tool","input","reason"}:raise ValueError("Step "+str(i)+" has an invalid shape.")
+  tool=s.get("tool");inp=s.get("input")
+  if tool not in ALLOWED or not isinstance(inp,dict):raise ValueError("Step "+str(i)+" uses an unknown tool or invalid input.")
+  if not isinstance(s.get("reason",""),str) or len(s.get("reason",""))>300:raise ValueError("Step "+str(i)+" has an invalid reason.")
+  if tool=="calculator":
+   if set(inp)!={"expression"} or not isinstance(inp.get("expression"),str) or not inp["expression"].strip() or len(inp["expression"])>256:raise ValueError("Calculator step "+str(i)+" requires one expression of at most 256 characters.")
+   try:calculator(inp["expression"])
+   except (ValueError,SyntaxError,ZeroDivisionError,OverflowError) as e:raise ValueError("Calculator step "+str(i)+" failed preflight validation.") from e
+  elif tool=="knowledge_search":
+   if set(inp)!={"query"} or not isinstance(inp.get("query"),str) or not inp["query"].strip() or len(inp["query"])>1000:raise ValueError("Knowledge search step "+str(i)+" requires one query of at most 1000 characters.")
+  clean.append({"tool":tool,"input":dict(inp),"reason":s.get("reason","")})
+ return clean
 def plan(goal,n):
  try:v=obj(chat(compose_prompt('Return only JSON {"steps":[{"tool":"calculator|knowledge_search","input":{},"reason":"..."}]}. Maximum '+str(n)+' steps. No shell or writes. Goal: '+goal),1000))
  except LiteRTError as e:raise HTTPException(503,str(e)) from e
  except (ValueError,json.JSONDecodeError) as e:raise HTTPException(502,"Invalid plan; no tools executed.") from e
- ss=v.get("steps")
- if not isinstance(ss,list) or not 1<=len(ss)<=n:raise HTTPException(502,"Invalid plan length.")
- for s in ss:
-  if not isinstance(s,dict) or s.get("tool") not in ALLOWED or not isinstance(s.get("input",{}),dict):raise HTTPException(502,"Unknown tool; no steps executed.")
- return ss
+ try:return validate_steps(v.get("steps"),n)
+ except ValueError as e:raise HTTPException(502,"Plan rejected during preflight; no tools executed: "+str(e)) from e
 @router.post("/plan")
 def plan_only(req:Goal):return {"goal":req.goal,"steps":plan(req.goal,req.max_steps),"tools_executed":0}
 def save_run(run_id,task_id,goal,status,steps,plan_steps,verification,current_step,created_at):
@@ -80,8 +93,6 @@ def run_detail(run_id:str):
  finally:c.close()
  if row is None:raise HTTPException(404,"Autonomy run not found.")
  return run_view(row)
-@router.post("/plan")
-def plan_only(req:Goal):return {"goal":req.goal,"steps":plan(req.goal,req.max_steps),"tools_executed":0}
 @router.post("/run")
 def run(req:Goal):
  c=cfg()
