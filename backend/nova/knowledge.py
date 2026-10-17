@@ -215,7 +215,7 @@ def list_documents():
     return [dict(r) for r in rows]
 @router.post("/search")
 def search_knowledge(req:SearchRequest):
-    terms=[t.lower() for t in re.findall(r"[\\w-]{2,}",req.query)][:12]
+    terms=[t.lower() for t in re.findall(r"[\w-]{2,}",req.query)][:12]
     if not terms: return {"query":req.query,"results":[],"method":"keyword"}
     semantic_enabled = settings.semantic_retrieval_enabled and settings.embedding_model_path.expanduser().is_dir()
     clauses=" OR ".join("lower(c.content) LIKE ?" for _ in terms)
