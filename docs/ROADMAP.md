@@ -22,7 +22,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 4. Approval-bound tool execution and production OS-level sandboxing.
 5. Expand audio support with streaming/realtime ASR, additional input formats, voice/model selection, and voice activity detection.
 6. ONNX embeddings/OCR/classification and TFLite/LiteRT edge model execution adapters; runtime detection alone is not inference support.
-7. Image/audio OCR and transcription ingestion, plus adversarial content-isolation tests. PDF/DOCX text extraction is now supported when the optional local parsers are installed.
+7. Streaming audio, OCR ingestion for scanned PDFs, and adversarial content-isolation tests. PDF/DOCX text extraction and explicit Tesseract image OCR are supported when their optional local dependencies are installed.
 8. Full settings validation and safe editable settings persistence.
 9. Multi-user RBAC, CSRF protections for browser-session deployments, rate limiting and encrypted sensitive storage.
 10. Workflow builder, multi-agent state machine, critic/verifier, prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware.

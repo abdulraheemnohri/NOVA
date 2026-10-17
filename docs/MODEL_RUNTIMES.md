@@ -74,3 +74,8 @@ TensorFlow Lite/LiteRT Python packages are also detected if installed. Actual mo
 - Only WAV extension plus RIFF/WAVE header is checked; users should provide trusted audio and correct PCM encoding.
 - Model compatibility, language quality, RAM use, hardware acceleration and licensing are not inferred from detection.
 - Do not expose NOVA's API beyond loopback without a separate hardened deployment design.
+
+
+## Local image OCR
+
+The explicit `POST /api/runtimes/ocr/extract` adapter uses a preinstalled Tesseract executable and optional Pillow. It accepts PNG, JPEG, TIFF, BMP and WebP, enforces upload/dimension/output limits, normalizes images into a temporary workspace directory, calls the executable with `shell=False` and a timeout, cleans temporary files and emits an audit event. OCR is task-scoped and never a chat fallback. Install Tesseract and Pillow yourself; NOVA does not download models or binaries automatically.

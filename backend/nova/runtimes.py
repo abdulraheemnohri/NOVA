@@ -55,6 +55,7 @@ def runtime_inventory() -> dict[str, Any]:
     """Return installed/configured runtime visibility without launching binaries."""
     whisper_cli = _resolve_executable(settings.whisper_cli_path, ("whisper-cli",))
     piper_cli = _resolve_executable(settings.piper_cli_path, ("piper",))
+    tesseract_cli = _resolve_executable(settings.tesseract_cli_path, ("tesseract",))
     llama_server = _resolve_executable(settings.llama_cpp_server_path, ("llama-server",))
     whisper_model = settings.whisper_model_path.expanduser()
     piper_model = settings.piper_model_path.expanduser()
@@ -64,6 +65,14 @@ def runtime_inventory() -> dict[str, Any]:
     tflite_available = _module_available("tflite_runtime") or _module_available("ai_edge_litert")
     transformers_available = _module_available("transformers")
     runtimes = [
+        {
+            "id": "tesseract-ocr", "name": "Tesseract OCR",
+            "purpose": "Local image-to-text extraction", "role": "image_to_text",
+            "detected": tesseract_cli is not None, "executable": tesseract_cli,
+            "configured": bool(settings.tesseract_cli_path or tesseract_cli),
+            "status": "needs_setup" if not tesseract_cli else ("ready" if _module_available("PIL") else "needs_setup"),
+            "policy": "Explicit local OCR endpoint only; image pixels and time are bounded.",
+        },
         {
             "id": "litert-lm", "name": "LiteRT-LM",
             "purpose": "Primary chat/reasoning inference", "role": "primary_chat",
@@ -131,6 +140,7 @@ def runtime_inventory() -> dict[str, Any]:
         "notes": [
             "Detection confirms executable/package presence only; it does not prove model compatibility or accelerator support.",
             "Optional runtimes are task-scoped. NOVA never starts a server or downloads model files automatically.",
+            "Tesseract OCR requires a local tesseract executable and optional Pillow image validation; it is not used for chat.",
             "This whisper.cpp adapter accepts WAV input only; convert other formats to 16 kHz mono 16-bit PCM WAV with a separately installed trusted converter.",
         ],
     }
@@ -139,6 +149,77 @@ def runtime_inventory() -> dict[str, Any]:
 @router.get("")
 def list_runtimes():
     return runtime_inventory()
+
+
+
+@router.post("/ocr/extract")
+async def extract_image_text(file: UploadFile = File(...)):
+    """Run explicitly requested OCR with a preinstalled local Tesseract binary."""
+    filename = Path(file.filename or "image").name
+    suffix = Path(filename).suffix.lower()
+    allowed = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+    if suffix not in allowed:
+        raise HTTPException(415, "OCR accepts PNG, JPEG, TIFF, BMP or WebP images only.")
+    data = await file.read(settings.ocr_max_upload_bytes + 1)
+    if not data or len(data) > settings.ocr_max_upload_bytes:
+        raise HTTPException(413, "Image is empty or exceeds the configured OCR upload limit.")
+    executable = _resolve_executable(settings.tesseract_cli_path, ("tesseract",))
+    if not executable:
+        raise HTTPException(503, "Tesseract was not found. Install it locally or set NOVA_TESSERACT_CLI_PATH.")
+    try:
+        from PIL import Image
+        from PIL import UnidentifiedImageError
+    except ImportError as exc:
+        raise HTTPException(503, "Image OCR requires the optional Pillow package for safe image validation.") from exc
+    import io
+    try:
+        with Image.open(io.BytesIO(data)) as probe:
+            if probe.format not in {"PNG", "JPEG", "TIFF", "BMP", "WEBP"}:
+                raise HTTPException(415, "Unsupported image format.")
+            width, height = probe.size
+            if width < 1 or height < 1 or width * height > 40_000_000 or max(width, height) > 10000:
+                raise HTTPException(413, "Image dimensions exceed the 40-megapixel safety limit.")
+            probe.verify()
+        with Image.open(io.BytesIO(data)) as source:
+            normalized = source.convert("RGB")
+    except HTTPException:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise HTTPException(422, "Upload is not a valid supported image.") from exc
+    workspace = settings.workspace.resolve()
+    ocr_dir = workspace / ".nova-ocr"
+    if ocr_dir.is_symlink():
+        raise HTTPException(403, "OCR work directory must not be a symbolic link.")
+    ocr_dir.mkdir(parents=True, exist_ok=True)
+    if workspace not in ocr_dir.resolve().parents:
+        raise HTTPException(403, "OCR work directory must remain inside the NOVA workspace.")
+    from tempfile import TemporaryDirectory
+    try:
+        with TemporaryDirectory(prefix="ocr-", dir=ocr_dir) as temp_dir:
+            image_path = Path(temp_dir) / "input.png"
+            normalized.save(image_path, format="PNG", optimize=False)
+            try:
+                result = subprocess.run(
+                    [executable, str(image_path), "stdout", "--psm", "6"],
+                    capture_output=True, text=True, timeout=settings.ocr_timeout_seconds,
+                    check=False, shell=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise HTTPException(504, "Local OCR exceeded its configured timeout.") from exc
+            if result.returncode != 0:
+                raise HTTPException(502, "Local Tesseract OCR failed; inspect the local runtime installation.")
+            text = (result.stdout or "").strip()
+            if len(text) > 1_000_000:
+                raise HTTPException(413, "OCR output exceeds the 1 MB text limit.")
+    finally:
+        normalized.close()
+    append_audit(settings.audit_path, "runtime.ocr.completed", {
+        "filename": filename, "image_sha256": __import__("hashlib").sha256(data).hexdigest(),
+        "text_sha256": __import__("hashlib").sha256(text.encode()).hexdigest(),
+        "text_chars": len(text), "runtime": "tesseract",
+    })
+    return {"runtime": "tesseract", "source_name": filename, "text": text, "characters": len(text),
+            "note": "Local OCR only. Review extracted text before treating it as trusted."}
 
 
 @router.post("/piper/synthesize")

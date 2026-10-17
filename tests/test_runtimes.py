@@ -157,3 +157,20 @@ def test_piper_synthesis_requires_voice_metadata(tmp_path, monkeypatch):
         response = client.post("/api/runtimes/piper/synthesize", headers=headers,
                                json={"text": "hello"})
         assert response.status_code == 503
+
+
+def test_ocr_rejects_unsupported_extension_before_runtime_lookup(tmp_path, monkeypatch):
+    from nova import runtimes
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.post("/api/runtimes/ocr/extract", headers=headers,
+                               files={"file": ("scan.pdf", b"not-an-image", "application/pdf")})
+        assert response.status_code == 415
+
+
+def test_ocr_requires_local_tesseract(tmp_path, monkeypatch):
+    from nova import runtimes
+    monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: None)
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.post("/api/runtimes/ocr/extract", headers=headers,
+                               files={"file": ("scan.png", b"valid-size-placeholder", "image/png")})
+        assert response.status_code == 503
