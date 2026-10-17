@@ -170,7 +170,8 @@ def test_scanned_pdf_ocr_is_opt_in(tmp_path, monkeypatch):
 def test_semantic_embedding_vectors_are_persistently_cached(tmp_path, monkeypatch):
     import sys
     import types
-    import numpy as np
+    import pytest
+    np = pytest.importorskip("numpy")
     from nova import knowledge
 
     monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
