@@ -1,0 +1,277 @@
+"""Discovery and adapters for optional local model runtimes.
+
+LiteRT-LM remains NOVA's only chat-inference runtime. Other runtimes are
+explicitly scoped to specialized tasks and are never silently selected as fallbacks.
+"""
+from __future__ import annotations
+
+import importlib.util
+import os
+import shutil
+import subprocess
+import uuid
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
+
+from nova.audit import append_audit
+from nova.config import settings
+from nova.litert import health as litert_health
+
+router = APIRouter(prefix="/api/runtimes", tags=["model runtimes"])
+
+_MAX_WAV_BYTES = 25_000_000
+
+
+class SynthesisRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+
+
+def _resolve_executable(configured: str, candidates: tuple[str, ...]) -> str | None:
+    if configured.strip():
+        path = Path(configured).expanduser()
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path.resolve())
+        # An invalid explicit path must not silently select a different binary.
+        return None
+    for candidate in candidates:
+        found = shutil.which(candidate)
+        if found:
+            return str(Path(found).resolve())
+    return None
+
+
+def _module_available(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError, ModuleNotFoundError):
+        return False
+
+
+def runtime_inventory() -> dict[str, Any]:
+    """Return installed/configured runtime visibility without launching binaries."""
+    whisper_cli = _resolve_executable(settings.whisper_cli_path, ("whisper-cli",))
+    piper_cli = _resolve_executable(settings.piper_cli_path, ("piper",))
+    llama_server = _resolve_executable(settings.llama_cpp_server_path, ("llama-server",))
+    whisper_model = settings.whisper_model_path.expanduser()
+    piper_model = settings.piper_model_path.expanduser()
+    piper_metadata = Path(str(piper_model) + ".json")
+    litert = litert_health()
+    onnx_available = settings.onnxruntime_enabled and _module_available("onnxruntime")
+    tflite_available = _module_available("tflite_runtime") or _module_available("ai_edge_litert")
+    transformers_available = _module_available("transformers")
+    runtimes = [
+        {
+            "id": "litert-lm", "name": "LiteRT-LM",
+            "purpose": "Primary chat/reasoning inference", "role": "primary_chat",
+            "detected": litert.get("reachable") is True, "configured": True,
+            "endpoint": litert.get("base_url", settings.litert_base_url),
+            "model_configured": settings.litert_model,
+            "status": "ready" if litert.get("reachable") is True else "unavailable",
+            "policy": "Only chat inference runtime; no automatic fallback.",
+        },
+        {
+            "id": "whisper-cpp", "name": "whisper.cpp",
+            "purpose": "Offline audio transcription / speech-to-text", "role": "speech_to_text",
+            "detected": whisper_cli is not None, "executable": whisper_cli,
+            "model_path": str(whisper_model), "model_present": whisper_model.is_file(),
+            "configured": bool(settings.whisper_cli_path or whisper_cli),
+            "status": "ready" if whisper_cli and whisper_model.is_file() else "needs_setup",
+            "policy": "Used only by the explicit transcription endpoint.",
+        },
+        {
+            "id": "piper-tts", "name": "Piper",
+            "purpose": "Local text-to-speech", "role": "text_to_speech",
+            "detected": piper_cli is not None, "executable": piper_cli,
+            "model_path": str(piper_model), "model_present": piper_model.is_file(),
+            "model_metadata_present": piper_metadata.is_file(),
+            "configured": bool(settings.piper_cli_path or piper_cli),
+            "status": "ready" if piper_cli and piper_model.is_file() and piper_metadata.is_file() else "needs_setup",
+            "policy": "Used only by the explicit local speech synthesis endpoint."
+        },
+        {
+            "id": "onnx-runtime", "name": "ONNX Runtime",
+            "purpose": "Specialized ONNX models: embeddings, OCR, classifiers and compatible audio models",
+            "role": "specialized_model_runtime", "detected": onnx_available,
+            "configured": settings.onnxruntime_enabled,
+            "status": "ready" if onnx_available else "not_available",
+            "policy": "Inventory only until a task-specific model adapter is enabled.",
+        },
+        {
+            "id": "tflite-runtime", "name": "TensorFlow Lite / LiteRT Python packages",
+            "purpose": "Compatible edge vision/audio/classification models",
+            "role": "specialized_model_runtime", "detected": tflite_available,
+            "configured": True, "status": "ready" if tflite_available else "not_available",
+            "policy": "Inventory only; no silent chat-runtime substitution.",
+        },
+        {
+            "id": "llama-cpp", "name": "llama.cpp server",
+            "purpose": "Optional GGUF runtime for future explicit model-specific integrations",
+            "role": "optional_runtime_not_used_for_chat", "detected": llama_server is not None,
+            "executable": llama_server, "configured": bool(settings.llama_cpp_server_path or llama_server),
+            "status": "detected_not_enabled" if llama_server else "not_available",
+            "policy": "Not used for NOVA chat; no automatic fallback.",
+        },
+        {
+            "id": "transformers", "name": "Hugging Face Transformers",
+            "purpose": "Future specialized local pipelines where supported",
+            "role": "specialized_model_runtime", "detected": transformers_available,
+            "configured": False,
+            "status": "detected_not_enabled" if transformers_available else "not_available",
+            "policy": "Not loaded automatically; no remote inference.",
+        },
+    ]
+    return {
+        "primary_chat_runtime": "litert-lm",
+        "automatic_fallback": False,
+        "runtimes": runtimes,
+        "notes": [
+            "Detection confirms executable/package presence only; it does not prove model compatibility or accelerator support.",
+            "Optional runtimes are task-scoped. NOVA never starts a server or downloads model files automatically.",
+            "This whisper.cpp adapter accepts WAV input only; convert other formats to 16 kHz mono 16-bit PCM WAV with a separately installed trusted converter.",
+        ],
+    }
+
+
+@router.get("")
+def list_runtimes():
+    return runtime_inventory()
+
+
+@router.post("/piper/synthesize")
+def synthesize_with_piper(req: SynthesisRequest):
+    """Synthesize speech with a preinstalled local Piper executable and voice model."""
+    if not req.text.strip():
+        raise HTTPException(422, "Text to synthesize must not be blank.")
+    executable = _resolve_executable(settings.piper_cli_path, ("piper",))
+    if not executable:
+        raise HTTPException(503, "Piper was not found. Set NOVA_PIPER_CLI_PATH to its executable.")
+    model = settings.piper_model_path.expanduser()
+    if not model.is_file() or model.suffix.lower() != ".onnx":
+        raise HTTPException(503, "Piper voice model is missing. Set NOVA_PIPER_MODEL_PATH to a local .onnx voice.")
+    sidecar = Path(str(model) + ".json")
+    if not sidecar.is_file():
+        raise HTTPException(503, "Piper voice metadata sidecar (.onnx.json) is missing.")
+    workspace = settings.workspace.resolve()
+    audio_dir = workspace / ".nova-audio"
+    if audio_dir.is_symlink():
+        raise HTTPException(403, "Audio work directory must not be a symbolic link.")
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    if workspace not in audio_dir.resolve().parents:
+        raise HTTPException(403, "Audio work directory must remain inside the NOVA workspace.")
+    output_path = audio_dir / f"{uuid.uuid4().hex}-speech.wav"
+    try:
+        timeout = max(10, min(settings.whisper_timeout_seconds, 600))
+        command = [executable, "--model", str(model.resolve()), "--output_file", str(output_path)]
+        try:
+            completed = subprocess.run(
+                command, input=req.text, shell=False, capture_output=True,
+                text=True, timeout=timeout, check=False, cwd=str(workspace),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(504, "Piper speech synthesis timed out.") from exc
+        if completed.returncode != 0:
+            append_audit(settings.audit_path, "runtime.piper.failure", {
+                "return_code": completed.returncode,
+            })
+            raise HTTPException(502, "Piper synthesis failed; verify the voice model and local runtime.")
+        if not output_path.is_file():
+            raise HTTPException(502, "Piper completed without producing a WAV output.")
+        if output_path.stat().st_size > _MAX_WAV_BYTES:
+            raise HTTPException(413, "Generated speech exceeds the output size limit.")
+        audio = output_path.read_bytes()
+        if len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+            raise HTTPException(502, "Piper output is not a valid RIFF/WAVE file.")
+        append_audit(settings.audit_path, "runtime.piper.synthesized", {
+            "output_bytes": len(audio), "text_chars": len(req.text),
+        })
+        return Response(content=audio, media_type="audio/wav",
+                        headers={"Content-Disposition": 'inline; filename="nova-speech.wav"'})
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(500, "Unable to safely stage or read local speech output.") from exc
+    finally:
+        try:
+            output_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+@router.post("/whisper/transcribe")
+async def transcribe_with_whisper(file: UploadFile = File(...)):
+    """Transcribe an uploaded WAV using an explicitly configured local whisper.cpp model."""
+    filename = Path(file.filename or "audio.wav").name
+    if Path(filename).suffix.lower() != ".wav":
+        raise HTTPException(415, "Only .wav input is accepted. Convert audio to 16 kHz mono 16-bit PCM WAV first.")
+    executable = _resolve_executable(settings.whisper_cli_path, ("whisper-cli",))
+    if not executable:
+        raise HTTPException(503, "whisper.cpp whisper-cli was not found. Set NOVA_WHISPER_CLI_PATH to its executable.")
+    model = settings.whisper_model_path.expanduser()
+    if not model.is_file():
+        raise HTTPException(503, "Whisper model is missing. Set NOVA_WHISPER_MODEL_PATH to a local ggml model file.")
+    if model.suffix.lower() != ".bin":
+        raise HTTPException(422, "whisper.cpp model path must point to a .bin ggml model file.")
+
+    limit = max(1024, min(settings.whisper_max_upload_bytes, _MAX_WAV_BYTES))
+    audio = await file.read(limit + 1)
+    await file.close()
+    if not audio:
+        raise HTTPException(400, "Uploaded audio file is empty.")
+    if len(audio) > limit:
+        raise HTTPException(413, f"Audio upload exceeds the configured {limit}-byte limit.")
+    if len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+        raise HTTPException(415, "Uploaded file is not a RIFF/WAVE audio file.")
+
+    workspace = settings.workspace.resolve()
+    audio_dir = workspace / ".nova-audio"
+    if audio_dir.is_symlink():
+        raise HTTPException(403, "Audio work directory must not be a symbolic link.")
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    if workspace not in audio_dir.resolve().parents:
+        raise HTTPException(403, "Audio work directory must remain inside the NOVA workspace.")
+    job_id = uuid.uuid4().hex
+    input_path = audio_dir / f"{job_id}.wav"
+    output_prefix = audio_dir / f"{job_id}-transcript"
+    output_path = Path(str(output_prefix) + ".txt")
+    try:
+        with input_path.open("xb") as stream:
+            stream.write(audio)
+        command = [
+            executable, "--model", str(model.resolve()), "--file", str(input_path),
+            "-otxt", "-of", str(output_prefix), "-nt",
+        ]
+        timeout = max(10, min(settings.whisper_timeout_seconds, 600))
+        try:
+            completed = subprocess.run(
+                command, shell=False, capture_output=True, text=True,
+                timeout=timeout, check=False, cwd=str(workspace),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(504, "whisper.cpp transcription timed out.") from exc
+        if completed.returncode != 0:
+            append_audit(settings.audit_path, "runtime.whisper.failure", {
+                "job_id": job_id, "return_code": completed.returncode,
+            })
+            raise HTTPException(502, "whisper.cpp transcription failed; verify local runtime/model and WAV format.")
+        if not output_path.is_file():
+            raise HTTPException(502, "whisper.cpp completed without producing the expected text output.")
+        transcript = output_path.read_text(encoding="utf-8", errors="replace").strip()
+        append_audit(settings.audit_path, "runtime.whisper.transcribed", {
+            "job_id": job_id, "input_bytes": len(audio), "output_chars": len(transcript),
+        })
+        return {"runtime": "whisper.cpp", "model": model.name, "transcript": transcript,
+                "input_bytes": len(audio), "job_id": job_id}
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(500, "Unable to safely stage or read local transcription files.") from exc
+    finally:
+        for path in (input_path, output_path):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
