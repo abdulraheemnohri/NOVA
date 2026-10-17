@@ -137,7 +137,7 @@ def startup():
         token = secrets.token_urlsafe(32)
         fd = os.open(settings.api_token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(token + "\\n")
+            stream.write(token + "\n")
             stream.flush()
             os.fsync(stream.fileno())
     try:
