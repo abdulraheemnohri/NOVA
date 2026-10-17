@@ -5,6 +5,7 @@ explicitly scoped to specialized tasks and are never silently selected as fallba
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import os
 import shutil
@@ -214,8 +215,8 @@ async def extract_image_text(file: UploadFile = File(...)):
     finally:
         normalized.close()
     append_audit(settings.audit_path, "runtime.ocr.completed", {
-        "filename": filename, "image_sha256": __import__("hashlib").sha256(data).hexdigest(),
-        "text_sha256": __import__("hashlib").sha256(text.encode()).hexdigest(),
+        "filename": filename, "image_sha256": hashlib.sha256(data).hexdigest(),
+        "text_sha256": hashlib.sha256(text.encode()).hexdigest(),
         "text_chars": len(text), "runtime": "tesseract",
     })
     return {"runtime": "tesseract", "source_name": filename, "text": text, "characters": len(text),

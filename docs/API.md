@@ -15,7 +15,7 @@ Base URL: `http://127.0.0.1:8000/api`. All endpoints except `GET /health` requir
 
 ## Knowledge, goals, and memory
 - `POST /documents/import`: import supported local text content.
-- `POST /documents/import-file` (multipart `file`): locally extract text from PDF/DOCX uploads, with a 20 MB input limit, 500-page PDF limit, bounded DOCX archive expansion and audit metadata. Requires optional `pypdf` / `python-docx`; scanned PDFs require a separate OCR adapter.
+- `POST /documents/import-file` (multipart `file`): locally extract text from PDF/DOCX uploads, with a 20 MB input limit, 500-page PDF limit, bounded DOCX archive expansion and audit metadata. Requires optional `pypdf` / `python-docx`; scanned PDFs need a separate local page-rasterization step followed by the OCR endpoint.
 - `POST /search`: local lexical search; semantic vector search is not implemented yet.
 - `GET /goals`, `POST /goals`: list and create goal records.
 - `POST /goals/{goal_id}/status`: update a goal to `open`, `in_progress`, `completed`, or `paused`; each transition is audit logged.
