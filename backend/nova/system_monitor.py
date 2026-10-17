@@ -112,10 +112,10 @@ def _mobile_battery() -> dict[str, Any] | None:
     return None
 
 
-def _mobile_gpu() -> list[dict[str, Any]]:
+def _mobile_gpu(base: Path | None = None) -> list[dict[str, Any]]:
     """Best-effort Android GPU counters; values vary by vendor and kernel."""
     devices: list[dict[str, Any]] = []
-    kgsl = Path("/sys/class/kgsl/kgsl-3d0")
+    kgsl = (base / "kgsl-3d0") if base is not None else Path("/sys/class/kgsl/kgsl-3d0")
     busy = _read_text(kgsl / "gpubusy")
     if busy:
         try:
@@ -142,7 +142,7 @@ def _mobile_gpu() -> list[dict[str, Any]]:
             "telemetry": "Android KGSL sysfs",
         })
     # Some Mali kernels expose a utilization text file, but no standardized VRAM counter.
-    mali_paths = (Path("/sys/class/misc/mali0/device/utilization"), Path("/sys/kernel/mali/mali0/utilization"))
+    mali_paths = ((base / "mali0" / "utilization",) if base is not None else (Path("/sys/class/misc/mali0/device/utilization"), Path("/sys/kernel/mali/mali0/utilization")))
     if not devices:
         for path in mali_paths:
             value = _read_text(path)

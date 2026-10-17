@@ -126,14 +126,7 @@ def test_mobile_gpu_reader_handles_qualcomm_gpubusy(monkeypatch, tmp_path):
     (kgsl / "gpubusy").write_text("250 1000")
     (kgsl / "gpuclk").write_text("500000000")
     (kgsl / "max_gpuclk").write_text("800000000")
-    original = system_monitor.Path
-    class FakePath(original):
-        def __new__(cls, value="."):
-            if value == "/sys/class/kgsl/kgsl-3d0":
-                value = str(kgsl)
-            return super().__new__(cls, value)
-    monkeypatch.setattr(system_monitor, "Path", FakePath)
-    result = system_monitor._mobile_gpu()
+    result = system_monitor._mobile_gpu(tmp_path)
     assert result[0]["vendor"] == "Qualcomm"
     assert result[0]["utilization_percent"] == 25
     assert result[0]["current_clock_mhz"] == 500
