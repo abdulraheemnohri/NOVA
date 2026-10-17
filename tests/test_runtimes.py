@@ -174,3 +174,59 @@ def test_ocr_requires_local_tesseract(tmp_path, monkeypatch):
         response = client.post("/api/runtimes/ocr/extract", headers=headers,
                                files={"file": ("scan.png", b"valid-size-placeholder", "image/png")})
         assert response.status_code == 503
+
+
+def test_tesseract_ocr_uses_shell_free_argv_and_cleans_temporary_files(tmp_path, monkeypatch):
+    import sys
+    from types import ModuleType
+    from pathlib import Path
+    from nova.config import settings
+    from nova import runtimes
+
+    class FakeNormalized:
+        def save(self, path, **kwargs):
+            Path(path).write_bytes(b"normalized-png")
+        def close(self):
+            pass
+
+    class FakeImage:
+        format = "PNG"
+        size = (32, 24)
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def verify(self):
+            pass
+        def convert(self, mode):
+            assert mode == "RGB"
+            return FakeNormalized()
+
+    pil = ModuleType("PIL")
+    image_module = ModuleType("PIL.Image")
+    image_module.open = lambda stream: FakeImage()
+    pil.Image = image_module
+    pil.UnidentifiedImageError = type("UnidentifiedImageError", (Exception,), {})
+    monkeypatch.setitem(sys.modules, "PIL", pil)
+    monkeypatch.setitem(sys.modules, "PIL.Image", image_module)
+    monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: "/usr/bin/tesseract")
+    monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
+    monkeypatch.setattr(settings, "ocr_timeout_seconds", 17)
+    observed = {}
+
+    def fake_run(command, **kwargs):
+        observed["command"] = command
+        observed["kwargs"] = kwargs
+        assert Path(command[1]).is_file()
+        return subprocess.CompletedProcess(command, 0, stdout="recognized local text", stderr="")
+
+    monkeypatch.setattr(runtimes.subprocess, "run", fake_run)
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.post("/api/runtimes/ocr/extract", headers=headers,
+                               files={"file": ("scan.png", b"fake-image-bytes", "image/png")})
+        assert response.status_code == 200, response.text
+        assert response.json()["text"] == "recognized local text"
+        assert observed["kwargs"]["shell"] is False
+        assert observed["kwargs"]["timeout"] == 17
+        assert observed["command"][0] == "/usr/bin/tesseract"
+        assert not list((settings.workspace / ".nova-ocr").glob("ocr-*"))
