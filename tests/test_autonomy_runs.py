@@ -85,10 +85,17 @@ def test_interrupted_run_can_be_replanned_without_execution(tmp_path,monkeypatch
  created="2026-10-18T00:00:00+00:00"
  autonomy.save_run("replan-me","task-1","calculate safely","interrupted",[],[{"tool":"calculator","input":{"expression":"2+2"}}],{"verified":False,"summary":"Pending"},0,created)
  monkeypatch.setattr(autonomy,"plan",lambda goal,n:[{"tool":"calculator","input":{"expression":"4+4"},"reason":"fresh plan"}])
+ def unexpected_execution(call):
+  raise AssertionError("replanning must never execute a tool")
+ monkeypatch.setattr(autonomy,"execute",unexpected_execution)
  result=autonomy.replan_interrupted_run("replan-me")
  assert result["execution_started"] is False
  assert result["steps"][0]["input"]["expression"]=="4+4"
  assert autonomy.run_detail("replan-me")["status"]=="interrupted"
+ from nova.audit import verify_audit
+ valid, count = verify_audit(settings.audit_path)
+ assert valid and count >= 1
+ assert "autonomy.replanned_for_review" in settings.audit_path.read_text(encoding="utf-8")
  try:autonomy.replan_interrupted_run("missing")
  except HTTPException as e:assert e.status_code==404
  else:raise AssertionError("missing run accepted")
