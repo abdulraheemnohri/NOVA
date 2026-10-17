@@ -31,10 +31,10 @@ def _clean_text(source_name:str, content:str)->str:
     if suffix not in {".txt",".md",".markdown",".csv",".json",".html",".htm"}:
         raise HTTPException(415,"This phase supports TXT, Markdown, CSV, JSON, and HTML text only.")
     if suffix in {".html",".htm"}:
-        content=re.sub(r"(?is)<(script|style).*?>.*?</\\1>"," ",content)
+        content=re.sub(r"(?is)<(script|style).*?>.*?</\1>"," ",content)
         content=re.sub(r"(?s)<[^>]+>"," ",content)
         content=html.unescape(content)
-    return re.sub(r"\\s+"," ",content).strip()
+    return re.sub(r"\s+"," ",content).strip()
 def _chunks(text:str, size:int=1200, overlap:int=150)->list[str]:
     if not text: return []
     result=[]; start=0
@@ -82,7 +82,7 @@ def list_documents():
     return [dict(r) for r in rows]
 @router.post("/search")
 def search_knowledge(req:SearchRequest):
-    terms=[t.lower() for t in re.findall(r"[\\w-]{2,}",req.query)][:12]
+    terms=[t.lower() for t in re.findall(r"[\w-]{2,}",req.query)][:12]
     if not terms: return {"query":req.query,"results":[],"method":"keyword"}
     clauses=" OR ".join("lower(c.content) LIKE ?" for _ in terms)
     params=[f"%{t}%" for t in terms]
