@@ -116,12 +116,21 @@ def _audit(event: str, details: dict[str, Any]):
 def _safe_path(relative: str) -> Path:
     # Reject absolute paths and traversal before resolving symlinks.
     candidate = Path(relative)
-    if candidate.is_absolute() or any(part == ".." for part in candidate.parts):
+    if candidate.is_absolute() or any(part in {"..", ""} for part in candidate.parts):
         raise HTTPException(403, "Path must be relative and remain inside the workspace.")
     # Snapshot backups are internal recovery state, never ordinary user workspace files.
     if candidate.parts and candidate.parts[0] == ".nova-snapshots":
         raise HTTPException(403, "The internal snapshot store is reserved and cannot be accessed as a workspace path.")
     root = settings.workspace.resolve()
+    # Do not follow user-controlled symlinks, even if their current destination is
+    # still inside the workspace. This reduces symlink escape and aliasing risks.
+    # A production multi-user deployment should additionally use dirfd/openat-style
+    # operations to eliminate races between validation and filesystem mutation.
+    cursor = root
+    for part in candidate.parts:
+        cursor = cursor / part
+        if cursor.is_symlink():
+            raise HTTPException(403, "Workspace paths must not contain symbolic links.")
     target = (root / candidate).resolve()
     if target == root or root not in target.parents:
         raise HTTPException(403, "Path escapes workspace.")
@@ -260,6 +269,9 @@ def decide(approval_id: str, decision: str):
 @app.post("/api/workspace/write")
 def write_file(req: FileWriteRequest):
     target = _safe_path(req.relative_path)
+    snapshot_dir = settings.workspace / ".nova-snapshots"
+    if snapshot_dir.is_symlink():
+        raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
     content = req.content.encode("utf-8")
     content_hash = hashlib.sha256(content).hexdigest()
     approved = False
@@ -296,10 +308,14 @@ def write_file(req: FileWriteRequest):
 
     snapshot_id = str(uuid.uuid4())
     existed = target.is_file()
-    snapshot_dir = settings.workspace / ".nova-snapshots"
     backup_path = None
     if existed:
+        # Recheck immediately before touching the internal recovery directory.
+        if snapshot_dir.is_symlink():
+            raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
         snapshot_dir.mkdir(parents=True, exist_ok=True)
+        if snapshot_dir.is_symlink():
+            raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
         backup = snapshot_dir / f"{snapshot_id}.bak"
         backup.write_bytes(target.read_bytes())
         backup_path = str(backup.relative_to(settings.workspace))
@@ -398,8 +414,14 @@ def rollback(req: RollbackRequest):
         if snapshot["existed"]:
             if not snapshot["backup_path"]:
                 raise HTTPException(500, "Snapshot metadata is incomplete.")
+            snapshot_store = settings.workspace / ".nova-snapshots"
+            if snapshot_store.is_symlink():
+                raise HTTPException(500, "The internal snapshot store must not be a symbolic link.")
+            workspace_root = settings.workspace.resolve()
+            snapshot_root = snapshot_store.resolve()
+            if snapshot_root.parent != workspace_root or snapshot_root.name != ".nova-snapshots":
+                raise HTTPException(500, "The internal snapshot store is outside its expected location.")
             backup = (settings.workspace / snapshot["backup_path"]).resolve()
-            snapshot_root = (settings.workspace / ".nova-snapshots").resolve()
             if snapshot_root not in backup.parents or not backup.is_file():
                 raise HTTPException(500, "Snapshot backup is missing or outside snapshot storage.")
             _atomic_write(target, backup.read_bytes())
@@ -450,3 +472,4 @@ def get_settings():
         "huggingface_max_download_bytes": settings.huggingface_max_download_bytes,
         "huggingface_token_configured": bool(settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()),
     }
+
