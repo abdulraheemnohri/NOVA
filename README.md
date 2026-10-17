@@ -52,6 +52,10 @@ The Tasks page stores local operator-authored tasks, plan steps, priority, optio
 
 The System Monitor includes a best-effort Android profile when NOVA runs in an Android-compatible Python environment such as Termux. It can read CPU core frequencies, RAM, the storage volumes accessible to the process, battery status from Android sysfs or optional Termux:API, and selected Adreno/Mali GPU counters. Enable Termux shared-storage permission if you want the shared storage volume to appear. Android OEM kernels often restrict GPU/NPU/TPU counters; missing values are reported as unavailable rather than guessed. This is telemetry only and does not alter performance, battery, thermal, or device settings.
 
+## Settings
+
+The Settings page persists a small, validated preference set in local SQLite: chat output-token limit, optional dashboard auto-refresh interval, and model-selection confirmation. Security-critical settings remain read-only and environment-controlled. Preference changes are audit-logged. See `docs/API.md` for the settings endpoints.
+
 ## Runtime diagnostics
 
 Open **Diagnostics** in the dashboard or call `GET /api/diagnostics` with the local bearer token. It reports LiteRT-LM endpoint reachability, model IDs returned by the local server, whether the configured model ID appears in that list, CLI presence on `PATH`, host/Python/disk details and audit-chain status. It is read-only: it does not execute shell commands or guess runtime versions, model compatibility, or GPU/NPU support. A model appearing in `/models` is not proof that inference will succeed.

@@ -1,4 +1,5 @@
 import hashlib
+import json
 from contextlib import contextmanager
 
 from fastapi.testclient import TestClient
@@ -275,3 +276,31 @@ def test_workspace_write_rejects_symlinked_snapshot_store(monkeypatch, tmp_path)
     assert existing.read_text(encoding="utf-8") == "original"
     assert list(outside_store.iterdir()) == []
 
+
+
+def test_settings_preferences_are_bounded_persistent_and_audited(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        initial = client.get("/api/settings/preferences")
+        assert initial.status_code == 200
+        assert initial.json() == {"chat_max_tokens": 512, "auto_refresh_seconds": 0, "confirm_model_selection": True}
+        saved = client.put("/api/settings/preferences", json={
+            "chat_max_tokens": 1024, "auto_refresh_seconds": 30, "confirm_model_selection": False,
+        })
+        assert saved.status_code == 200, saved.text
+        assert saved.json() == {"chat_max_tokens": 1024, "auto_refresh_seconds": 30, "confirm_model_selection": False}
+        assert client.get("/api/settings/preferences").json() == saved.json()
+        assert any(json.loads(line)["event_type"] == "settings.preferences.updated"
+                   for line in settings.audit_path.read_text(encoding="utf-8").splitlines())
+
+
+def test_settings_preferences_reject_out_of_range_and_unknown_values(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        assert client.put("/api/settings/preferences", json={
+            "chat_max_tokens": 99999, "auto_refresh_seconds": 0, "confirm_model_selection": True,
+        }).status_code == 422
+        assert client.put("/api/settings/preferences", json={
+            "chat_max_tokens": 512, "auto_refresh_seconds": 0, "confirm_model_selection": True,
+            "disable_security": True,
+        }).status_code == 422

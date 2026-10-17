@@ -11,6 +11,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Persistent task queue API and UI with explicit lifecycle transitions, priority, timezone-aware due times, plan steps, result, attempts and audit records.
 - Lease-based local scheduler with opt-in background worker, recovery after expired leases, bounded retry metadata, due-task priority ordering, audit events, and Scheduler UI. It only moves due tasks to Planned for human review; it never executes commands or model-generated plans.
 - Read-only runtime diagnostics API/UI for LiteRT-LM endpoint status, model IDs, configured-model presence, CLI discovery, host details and audit integrity.
+- Persisted operator preferences API/UI for chat token limits, opt-in automatic status polling, and model-switch confirmation; values are range-validated, stored in SQLite, and audit logged.
 - System Monitor API/UI for CPU/processor utilization, RAM/swap, storage, battery, NVIDIA GPU telemetry through nvidia-smi, best-effort AMD/Intel GPU utilization/VRAM/temperature from Linux sysfs, Android per-core frequency/battery/storage/Qualcomm Adreno and ARM Mali GPU hints, and best-effort NPU/TPU device detection.
 - Task-scoped runtime inventory for LiteRT-LM, whisper.cpp, Piper, ONNX Runtime, TFLite/LiteRT Python packages, llama.cpp and Transformers.
 - Local whisper.cpp WAV transcription and Piper WAV synthesis endpoints with bounded inputs/timeouts, shell=False, temporary workspace-local files, and audit events. Piper requires a local ONNX voice and matching metadata sidecar.
@@ -24,7 +25,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 5. Expand audio support with streaming/realtime ASR, additional input formats, voice/model selection, and voice activity detection.
 6. ONNX embeddings/OCR/classification and TFLite/LiteRT edge model execution adapters; runtime detection alone is not inference support.
 7. Streaming audio, OCR ingestion for scanned PDFs, and adversarial content-isolation tests. PDF/DOCX text extraction and explicit Tesseract image OCR are supported when their optional local dependencies are installed.
-8. Full settings validation and safe editable settings persistence.
+8. Broader operational settings validation and safe editable settings persistence; the bounded workbench preference subset is implemented.
 9. Multi-user RBAC, CSRF protections for browser-session deployments, rate limiting and encrypted sensitive storage.
 10. Workflow builder, multi-agent state machine, critic/verifier, prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware.
 

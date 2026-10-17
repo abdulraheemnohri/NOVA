@@ -28,6 +28,7 @@ from nova.diagnostics import router as diagnostics_router
 from nova.runtimes import router as runtimes_router
 from nova.scheduler import router as scheduler_router, start_worker, stop_worker, initialize_scheduler_config
 from nova.system_monitor import router as system_router
+from nova.settings_preferences import router as settings_preferences_router
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
 
@@ -64,6 +65,7 @@ app.include_router(diagnostics_router)
 app.include_router(runtimes_router)
 app.include_router(scheduler_router)
 app.include_router(system_router)
+app.include_router(settings_preferences_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

@@ -36,3 +36,8 @@ These are early-stage endpoints. Multi-user identity/RBAC, adversarial testing, 
 ## Destructive rollback approval
 
 A workspace rollback is a high-risk action. Create an approval with action `rollback_snapshot` and payload `{"snapshot_id":"<exact snapshot id>"}`, explicitly approve it, then call `POST /api/workspace/rollback` with both `snapshot_id` and `approval_id`. The API rejects missing or mismatched approvals and consumes the approval after rollback. The UI asks for confirmation and submits this approval sequence.
+
+## Persisted operator preferences
+- `GET /settings/preferences`: read locally persisted workbench preferences.
+- `PUT /settings/preferences`: validate and persist `chat_max_tokens` (64–4096), `auto_refresh_seconds` (0–300; 0 disables polling), and `confirm_model_selection` (boolean). Unknown fields are rejected.
+- Preference changes are stored in the local SQLite settings table and appended to the audit chain. These preferences cannot change the inference runtime, network binding, tool allowlist, or weaken approval policy.
