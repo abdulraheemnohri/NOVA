@@ -6,6 +6,7 @@
 - JSONL SHA-256 chained audit log and bearer-token protected local API.
 - Explicit tool allowlist and approval-gated writes.
 - Local model registry, hardware profiles and optional Hugging Face Hub discovery/download.
+- Read-only diagnostics endpoint (`GET /api/diagnostics`) and dashboard page for endpoint/model visibility, host information, audit integrity and explicit compatibility limits.
 
 ## Model management
 
