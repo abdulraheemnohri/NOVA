@@ -87,7 +87,11 @@ def test_write_snapshot_and_rollback_restores_previous_file(monkeypatch, tmp_pat
         restored = client.post("/api/workspace/rollback", json={"snapshot_id": snapshot_id, "approval_id": rollback_approval})
         assert restored.status_code == 200, restored.text
         assert original.read_text(encoding="utf-8") == "original"
-        assert client.post("/api/workspace/rollback", json={"snapshot_id": snapshot_id}).status_code == 409
+        second_approval = _approve_rollback(client, snapshot_id)
+        assert client.post(
+            "/api/workspace/rollback",
+            json={"snapshot_id": snapshot_id, "approval_id": second_approval},
+        ).status_code == 409
 
 
 def test_rollback_removes_file_created_by_write(monkeypatch, tmp_path):
