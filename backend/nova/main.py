@@ -448,5 +448,5 @@ def get_settings():
         "huggingface_enabled": True,
         "huggingface_cache_dir": str(settings.huggingface_cache_dir),
         "huggingface_max_download_bytes": settings.huggingface_max_download_bytes,
-        "huggingface_token_configured": bool(os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()),
+        "huggingface_token_configured": bool(settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()),
     }
