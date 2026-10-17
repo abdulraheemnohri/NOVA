@@ -1,6 +1,6 @@
 # NOVA Local API Reference
 
-Base URL: `http://127.0.0.1:8000/api`. The API has no authentication yet. Keep it bound to loopback; do not expose it to a LAN or public interface.
+Base URL: `http://127.0.0.1:8000/api`. All endpoints except `GET /health` require `Authorization: Bearer <token>`. On first startup, read the locally generated token from `data/api.token` (or `NOVA_API_TOKEN_FILE` if configured). The API never returns the token. Keep the service bound to loopback; do not expose it to a LAN or public interface.
 
 ## Runtime
 - `GET /health`: API status, LiteRT-LM endpoint reachability, and audit-chain verification.
@@ -24,7 +24,7 @@ Base URL: `http://127.0.0.1:8000/api`. The API has no authentication yet. Keep i
 
 For an approved write, calculate the content SHA-256, request approval for action `workspace_write` with the exact relative path and digest, approve the returned ID, then call the write endpoint with that ID and identical content. Keep the returned snapshot ID for recovery.
 
-These are early-stage endpoints. Authentication, adversarial testing, and concurrent-write race testing remain necessary before production use. Write approvals are conditionally claimed once and marked consumed after a successful write.
+These are early-stage endpoints. Multi-user identity/RBAC, adversarial testing, and concurrent-write race testing remain necessary before production use. Write approvals are conditionally claimed once and marked consumed after a successful write.
 
 ## Destructive rollback approval
 
