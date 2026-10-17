@@ -34,6 +34,10 @@ The Tasks page stores local operator-authored tasks, plan steps, priority, optio
 
 Open **Diagnostics** in the dashboard or call `GET /api/diagnostics` with the local bearer token. It reports LiteRT-LM endpoint reachability, model IDs returned by the local server, whether the configured model ID appears in that list, CLI presence on `PATH`, host/Python/disk details and audit-chain status. It is read-only: it does not execute shell commands or guess runtime versions, model compatibility, or GPU/NPU support. A model appearing in `/models` is not proof that inference will succeed.
 
+## Local model runtimes and speech
+
+The **Runtimes** page inventories LiteRT-LM, whisper.cpp, Piper, ONNX Runtime, TensorFlow Lite/LiteRT Python packages, llama.cpp and Transformers. LiteRT-LM remains the only chat runtime; optional runtimes are task-scoped and never silent fallbacks. The first additional inference adapter is local whisper.cpp WAV transcription via `POST /api/runtimes/whisper/transcribe`. Piper TTS and ONNX/TFLite task adapters are not yet implemented. Setup, environment variables, security boundaries and model licensing notes are in `docs/MODEL_RUNTIMES.md`.
+
 ## Security status
 - Default-deny tool policy; unknown tools are blocked.
 - Workspace writes and destructive rollback require explicit, payload-bound approval.
