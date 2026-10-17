@@ -10,9 +10,10 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Local document import/search, goals, memory, approvals, audit verification, snapshots and rollback UI.
 - Persistent task queue API and UI: create/list/filter/delete tasks; explicit lifecycle transitions; priority, optional timezone-aware due time, plan steps, result, attempt count and audit records.
 - Task queue is intentionally not a command executor. It never runs shell commands or executes model-generated plans.
+- Read-only runtime diagnostics API and UI: LiteRT-LM endpoint status, model IDs exposed by the server, configured-model presence, CLI PATH discovery, Python/platform/disk details, audit-chain status and explicit compatibility limitations.
 
 ## Remaining work (not yet complete)
-1. Runtime diagnostics beyond endpoint reachability, including installed LiteRT-LM version/model introspection and safe compatibility checks.
+1. Runtime diagnostics still need release-specific version reporting and real target-device/model smoke tests; the UI deliberately does not execute arbitrary CLI binaries or infer accelerator support.
 2. Semantic RAG with local embeddings, vector/hybrid retrieval and grounded citations.
 3. Scheduler worker with leases, retries, cancellation, recovery and explicit policy-gated task execution.
 4. Approval-bound tool execution and production OS-level sandboxing.

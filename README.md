@@ -30,6 +30,10 @@ NOVA never falls back to Ollama, llama.cpp, or cloud providers. The default endp
 
 The Tasks page stores local operator-authored tasks, plan steps, priority, optional timezone-aware due times, status transitions, attempt counts and results in SQLite. Every create/status/delete event is audit logged. The queue does not execute shell commands or model-generated plans, and due times are not scheduled until a dedicated worker is implemented. See `docs/TASKS_API.md`.
 
+## Runtime diagnostics
+
+Open **Diagnostics** in the dashboard or call `GET /api/diagnostics` with the local bearer token. It reports LiteRT-LM endpoint reachability, model IDs returned by the local server, whether the configured model ID appears in that list, CLI presence on `PATH`, host/Python/disk details and audit-chain status. It is read-only: it does not execute shell commands or guess runtime versions, model compatibility, or GPU/NPU support. A model appearing in `/models` is not proof that inference will succeed.
+
 ## Security status
 - Default-deny tool policy; unknown tools are blocked.
 - Workspace writes and destructive rollback require explicit, payload-bound approval.
