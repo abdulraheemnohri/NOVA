@@ -193,9 +193,11 @@ def download_huggingface_artifact(req: DownloadRequest):
         with destination.open("rb") as stream:
             for block in iter(lambda: stream.read(_CHUNK), b""):
                 digest.update(block)
+        digest_hex = digest.hexdigest()
+        append_audit(settings.audit_path, "huggingface_artifact_cache_hit", {"repo_id": repo, "revision": revision, "filename": filename, "sha256": digest_hex, "size_bytes": destination.stat().st_size})
         return {"downloaded": True, "repo_id": repo, "revision": revision, "filename": filename,
                 "file_path": str(destination), "size_bytes": destination.stat().st_size,
-                "sha256": digest.hexdigest(), "cached": True, "format": extension[1:],
+                "sha256": digest_hex, "cached": True, "format": extension[1:],
                 "inference_enabled": extension == ".litertlm"}
 
     encoded_filename = "/".join(urllib.parse.quote(part, safe="") for part in filename.split("/"))
@@ -241,7 +243,9 @@ def download_huggingface_artifact(req: DownloadRequest):
         except OSError:
             pass
 
+    digest_hex = digest.hexdigest()
+    append_audit(settings.audit_path, "huggingface_artifact_downloaded", {"repo_id": repo, "revision": revision, "filename": filename, "sha256": digest_hex, "size_bytes": total, "format": extension[1:]})
     return {"downloaded": True, "repo_id": repo, "revision": revision, "filename": filename,
-            "file_path": str(destination), "size_bytes": total, "sha256": digest.hexdigest(),
+            "file_path": str(destination), "size_bytes": total, "sha256": digest_hex,
             "cached": False, "format": extension[1:], "inference_enabled": extension == ".litertlm",
             "next_step": "Register this local artifact in Model Manager and select it only if it is a compatible LiteRT-LM model."}
