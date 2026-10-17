@@ -8,7 +8,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Local bearer-token authentication, default-deny tool policy, approval-gated workspace writes and snapshot rollback.
 - SQLite model registry, curated catalog/device tiers, SHA-256 artifact validation, optional Hugging Face metadata/artifact import.
 - Local document import/search, goals, memory, approvals, audit verification, snapshots and rollback UI.
-- Chat-time local lexical retrieval with bounded reference excerpts, source/chunk metadata returned separately, UI source disclosure, and prompt text marking document content as untrusted; semantic embeddings/vector search remain planned.
+- Chat-time local lexical retrieval with bounded reference excerpts, source/chunk metadata returned separately, UI source disclosure, and prompt text marking document content as untrusted.\n- Optional CPU-only semantic/hybrid retrieval using a user-supplied local SentenceTransformers model directory; lexical-only behavior remains the default and fallback.
 - Persistent task queue API and UI with explicit lifecycle transitions, priority, timezone-aware due times, plan steps, result, attempts and audit records.
 - Lease-based local scheduler with opt-in background worker, recovery after expired leases, bounded retry metadata, due-task priority ordering, audit events, and Scheduler UI. It only moves due tasks to Planned for human review; it never executes commands or model-generated plans.
 - Read-only runtime diagnostics API/UI for LiteRT-LM endpoint status, model IDs, configured-model presence, CLI discovery, host details and audit integrity.
@@ -18,16 +18,16 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Local whisper.cpp WAV transcription and Piper WAV synthesis endpoints with bounded inputs/timeouts, shell=False, temporary workspace-local files, and audit events. Piper requires a local ONNX voice and matching metadata sidecar.
 - Runtime Manager UI for engine discovery, transcription, speech synthesis and local audio playback. ONNX/TFLite model execution and llama.cpp chat fallback remain disabled.
 
-## Remaining work (not yet complete)
+## Newly implemented hardening\n- Process-local API request rate limiting and a separate failed-authentication budget, with basic response security headers. This is single-process defense in depth, not multi-user RBAC or an edge limiter.\n\n## Remaining work (not yet complete)
 1. Real target-device smoke tests for whisper.cpp and Piper, plus release-specific LiteRT-LM version reporting and model/accelerator validation.
-2. Semantic RAG with local embeddings, vector/hybrid retrieval and grounded citations.
+2. Persistent vector-index caching, retrieval evaluation, citation-level grounding verification, and large-corpus performance work for semantic RAG.
 3. Approval-bound task execution adapters and production OS-level sandboxing. The current scheduler only dispatches due tasks to human review; it does not execute tools.
 4. Approval-bound tool execution and production OS-level sandboxing.
 5. Expand audio support with streaming/realtime ASR, additional input formats, voice/model selection, and voice activity detection.
 6. ONNX embeddings/OCR/classification and TFLite/LiteRT edge model execution adapters; runtime detection alone is not inference support.
 7. Streaming audio, OCR ingestion for scanned PDFs, and adversarial content-isolation tests. PDF/DOCX text extraction and explicit Tesseract image OCR are supported when their optional local dependencies are installed.
 8. Broader operational settings validation and safe editable settings persistence; the bounded workbench preference subset is implemented.
-9. Multi-user RBAC, CSRF protections for browser-session deployments, rate limiting and encrypted sensitive storage.
+9. Multi-user RBAC, CSRF protections for browser-session deployments, persistent/distributed rate-limit storage and encrypted sensitive storage.
 10. Workflow builder, multi-agent state machine, critic/verifier, prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware.
 
 ## Definition of done

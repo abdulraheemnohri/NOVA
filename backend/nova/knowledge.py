@@ -1,7 +1,7 @@
-"""Local text knowledge, memories, and goal records.
+"""Local text knowledge, memories, goals, and optional offline hybrid retrieval.
 
-Retrieval is deterministic local keyword search in this phase; it does not claim
-semantic/vector retrieval until a verified local embedding adapter is implemented.
+Keyword search is the default. Semantic retrieval is opt-in and loads only a local
+SentenceTransformers model directory; failures fall back to lexical search.
 """
 import hashlib, html, io, json, re, sqlite3, uuid, zipfile
 from datetime import datetime, timezone
@@ -12,6 +12,47 @@ from nova.config import settings
 from nova.audit import append_audit
 
 router=APIRouter(prefix="/api")
+
+# Optional embeddings are loaded strictly from a local directory. The default is
+# disabled so installations remain dependency-free and fully offline.
+_embedding_model = None
+_embedding_model_path: str | None = None
+
+
+def _local_semantic_scores(query: str, rows) -> dict[str, float] | None:
+    global _embedding_model, _embedding_model_path
+    if not settings.semantic_retrieval_enabled:
+        return None
+    model_path = settings.embedding_model_path.expanduser()
+    if not model_path.is_dir():
+        return None
+    try:
+        from sentence_transformers import SentenceTransformer
+        import numpy as np
+        path = str(model_path.resolve())
+        if _embedding_model is None or _embedding_model_path != path:
+            _embedding_model = SentenceTransformer(
+                path, device="cpu", local_files_only=True, trust_remote_code=False
+            )
+            _embedding_model_path = path
+        texts = [str(row["content"]) for row in rows]
+        if not texts:
+            return {}
+        vectors = _embedding_model.encode(
+            texts, normalize_embeddings=True, convert_to_numpy=True,
+            show_progress_bar=False,
+        )
+        query_vector = _embedding_model.encode(
+            [query], normalize_embeddings=True, convert_to_numpy=True,
+            show_progress_bar=False,
+        )[0]
+        scores = np.asarray(vectors) @ np.asarray(query_vector)
+        return {str(row["chunk_id"]): max(0.0, min(1.0, float(score)))
+                for row, score in zip(rows, scores)}
+    except (ImportError, OSError, ValueError, RuntimeError, TypeError):
+        # Optional embeddings must never take down local keyword search.
+        return None
+
 def _connect():
     settings.database_path.parent.mkdir(parents=True,exist_ok=True)
     con=sqlite3.connect(settings.database_path); con.row_factory=sqlite3.Row
@@ -176,20 +217,43 @@ def list_documents():
 def search_knowledge(req:SearchRequest):
     terms=[t.lower() for t in re.findall(r"[\w-]{2,}",req.query)][:12]
     if not terms: return {"query":req.query,"results":[],"method":"keyword"}
+    semantic_enabled = settings.semantic_retrieval_enabled and settings.embedding_model_path.expanduser().is_dir()
     clauses=" OR ".join("lower(c.content) LIKE ?" for _ in terms)
     params=[f"%{t}%" for t in terms]
     con=_connect()
     try:
-        rows=con.execute(f"""SELECT c.id AS chunk_id,c.chunk_index,c.content,d.id AS document_id,d.source_name
-        FROM document_chunks c JOIN documents d ON d.id=c.document_id WHERE {clauses} ORDER BY d.created_at DESC LIMIT ?""",(*params,req.limit*4)).fetchall()
+        if semantic_enabled:
+            rows=con.execute("""SELECT c.id AS chunk_id,c.chunk_index,c.content,d.id AS document_id,d.source_name
+                FROM document_chunks c JOIN documents d ON d.id=c.document_id
+                ORDER BY d.created_at DESC LIMIT 5000""").fetchall()
+        else:
+            rows=con.execute(f"""SELECT c.id AS chunk_id,c.chunk_index,c.content,d.id AS document_id,d.source_name
+                FROM document_chunks c JOIN documents d ON d.id=c.document_id
+                WHERE {clauses} ORDER BY d.created_at DESC LIMIT ?""",(*params,req.limit*4)).fetchall()
     finally: con.close()
+    semantic_scores = _local_semantic_scores(req.query, rows) if semantic_enabled else None
     results=[]
     for row in rows:
-        matched=sum(1 for t in terms if t in row["content"].lower())
-        if matched:
-            results.append({"chunk_id":row["chunk_id"],"document_id":row["document_id"],"source":row["source_name"],"chunk_index":row["chunk_index"],"score":round(matched/len(terms),3),"text":row["content"]})
+        content = row["content"]
+        matched=sum(1 for t in terms if t in content.lower())
+        lexical = matched / len(terms)
+        semantic = semantic_scores.get(str(row["chunk_id"]), 0.0) if semantic_scores is not None else None
+        if matched or (semantic is not None and semantic >= 0.25):
+            score = (0.45 * lexical + 0.55 * semantic) if semantic is not None else lexical
+            results.append({
+                "chunk_id":row["chunk_id"],"document_id":row["document_id"],
+                "source":row["source_name"],"chunk_index":row["chunk_index"],
+                "score":round(score,3),"lexical_score":round(lexical,3),
+                **({"semantic_score":round(semantic,3)} if semantic is not None else {}),
+                "text":content,
+            })
     results.sort(key=lambda x:x["score"],reverse=True)
-    return {"query":req.query,"method":"local_keyword","results":results[:req.limit],"note":"Keyword retrieval only; confidence scores are lexical overlap, not calibrated probabilities."}
+    method = "local_hybrid" if semantic_scores is not None else "local_keyword"
+    note = ("Local embedding similarity blended with lexical overlap; inspect citations."
+            if semantic_scores is not None else
+            "Keyword retrieval only; confidence scores are lexical overlap, not calibrated probabilities. "
+            "If embeddings are enabled but unavailable, check the local model path and optional dependencies.")
+    return {"query":req.query,"method":method,"results":results[:req.limit],"note":note}
 @router.get("/memory")
 def list_memories():
     con=_connect()
