@@ -21,7 +21,10 @@ def db():
  c.execute("""CREATE TABLE IF NOT EXISTS autonomy_runs(
  id TEXT PRIMARY KEY,task_id TEXT NOT NULL,goal TEXT NOT NULL,status TEXT NOT NULL,
  plan_json TEXT NOT NULL,steps_json TEXT NOT NULL,verification_json TEXT NOT NULL,
- current_step INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)""")
+ current_step INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
+ cancel_requested INTEGER NOT NULL DEFAULT 0)""")
+ columns={str(r[1]) for r in c.execute("PRAGMA table_info(autonomy_runs)").fetchall()}
+ if "cancel_requested" not in columns:c.execute("ALTER TABLE autonomy_runs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0")
  c.commit();return c
 def cfg():
  c=db()
@@ -93,6 +96,23 @@ def run_detail(run_id:str):
  finally:c.close()
  if row is None:raise HTTPException(404,"Autonomy run not found.")
  return run_view(row)
+@router.post("/runs/{run_id}/cancel")
+def cancel_run(run_id:str):
+ c=db()
+ try:
+  now=datetime.now(timezone.utc).isoformat()
+  cur=c.execute("UPDATE autonomy_runs SET cancel_requested=1,updated_at=? WHERE id=? AND status='running' AND cancel_requested=0",(now,run_id));c.commit()
+  row=c.execute("SELECT status,cancel_requested FROM autonomy_runs WHERE id=?",(run_id,)).fetchone()
+ finally:c.close()
+ if row is None:raise HTTPException(404,"Autonomy run not found.")
+ if row["status"]!="running":raise HTTPException(409,"Only a running autonomy run can be cancelled.")
+ append_audit(settings.audit_path,"autonomy.cancel_requested",{"run_id":run_id})
+ return {"run_id":run_id,"status":"cancel_requested","cancel_requested":True,"message":"Cancellation is checked between tool steps; an already-running step may finish first."}
+def cancel_requested(run_id):
+ c=db()
+ try:r=c.execute("SELECT cancel_requested FROM autonomy_runs WHERE id=?",(run_id,)).fetchone()
+ finally:c.close()
+ return bool(r and r["cancel_requested"])
 @router.post("/run")
 def run(req:Goal):
  c=cfg()
@@ -103,19 +123,22 @@ def run(req:Goal):
  run_id=str(uuid.uuid4());created=datetime.now(timezone.utc).isoformat();out=[];verification={"verified":False,"summary":"Not verified."}
  save_run(run_id,tid,req.goal,"running",out,ss,verification,0,created)
  for i,s in enumerate(ss):
+  if cancel_requested(run_id):break
   try:out.append({"step":i+1,"tool":s["tool"],"reason":str(s.get("reason",""))[:300],"ok":True,"result":execute(type("CallProxy",(),{"name":s["tool"],"input":s.get("input",{})})())})
   except Exception as e:out.append({"step":i+1,"tool":s.get("tool","unknown"),"ok":False,"error":str(e)[:200]})
   save_run(run_id,tid,req.goal,"running",out,ss,verification,i+1,created)
   if not out[-1]["ok"]:break
- if c["verify_results"]:
+ cancelled=cancel_requested(run_id)
+ if c["verify_results"] and not cancelled:
   try:
    v=obj(chat(compose_prompt('Verify using only these outputs. JSON {"verified":boolean,"summary":"..."}. Goal: '+req.goal+" Outputs: "+json.dumps(out,default=str)[:6000]),400))
    verification={"verified":v.get("verified") is True,"summary":str(v.get("summary",""))[:500]}
   except Exception:verification={"verified":False,"summary":"Verifier failed; not verified."}
- done=bool(out) and all(x["ok"] for x in out) and (verification["verified"] if c["verify_results"] else True)
- result={"goal":req.goal,"steps":out,"verification":verification,"completed":done}
- final_status="completed" if done else "failed"
+ cancelled=cancel_requested(run_id)
+ done=not cancelled and bool(out) and all(x["ok"] for x in out) and (verification["verified"] if c["verify_results"] else True)
+ result={"goal":req.goal,"steps":out,"verification":verification,"completed":done,"cancelled":cancelled}
+ final_status="cancelled" if cancelled else ("completed" if done else "failed")
  save_run(run_id,tid,req.goal,final_status,out,ss,verification,len(out),created)
  update_task_status(tid,TaskStatusUpdate(status=final_status,result=json.dumps(result)[:20000]))
- append_audit(settings.audit_path,"autonomy.finished",{"run_id":run_id,"task_id":tid,"completed":done,"verified":verification["verified"]})
+ append_audit(settings.audit_path,"autonomy.finished",{"run_id":run_id,"task_id":tid,"completed":done,"cancelled":cancelled,"verified":verification["verified"]})
  return {"run_id":run_id,"task_id":tid,**result}
