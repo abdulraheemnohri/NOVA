@@ -79,3 +79,8 @@ TensorFlow Lite/LiteRT Python packages are also detected if installed. Actual mo
 ## Local image OCR
 
 The explicit `POST /api/runtimes/ocr/extract` adapter uses a preinstalled Tesseract executable and optional Pillow. It accepts PNG, JPEG, TIFF, BMP and WebP, enforces upload/dimension/output limits, normalizes images into a temporary workspace directory, calls the executable with `shell=False` and a timeout, cleans temporary files and emits an audit event. OCR is task-scoped and never a chat fallback. Install Tesseract and Pillow yourself; NOVA does not download models or binaries automatically.
+
+
+## Optional offline semantic/hybrid retrieval
+
+Keyword retrieval remains the default. To enable local embedding-assisted retrieval, install the optional dependency set with `pip install -r requirements-optional.txt`, place a compatible SentenceTransformers model directory at `./data/models/embeddings` (or configure `NOVA_EMBEDDING_MODEL_PATH`), and set `NOVA_SEMANTIC_RETRIEVAL_ENABLED=true` in the backend environment. The model must already exist locally: NOVA passes `local_files_only=True`, uses CPU embeddings, and does not download model files. Search blends normalized lexical overlap (45%) and cosine similarity (55%); the score is a ranking signal, not calibrated confidence. The initial adapter scans at most 5,000 chunks per semantic query and does not yet persist vector indexes. If the model or optional library is unavailable, search falls back to keyword retrieval. Inspect the returned source IDs and excerpts before relying on generated claims.

@@ -1,7 +1,7 @@
-"""Local text knowledge, memories, and goal records.
+"""Local text knowledge, memories, goals, and optional offline hybrid retrieval.
 
-Retrieval is deterministic local keyword search in this phase; it does not claim
-semantic/vector retrieval until a verified local embedding adapter is implemented.
+Keyword search is the default. Semantic retrieval is opt-in and loads only a local
+SentenceTransformers model directory; failures fall back to lexical search.
 """
 import hashlib, html, io, json, re, sqlite3, uuid, zipfile
 from datetime import datetime, timezone

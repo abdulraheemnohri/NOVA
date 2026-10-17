@@ -27,7 +27,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 6. ONNX embeddings/OCR/classification and TFLite/LiteRT edge model execution adapters; runtime detection alone is not inference support.
 7. Streaming audio, OCR ingestion for scanned PDFs, and adversarial content-isolation tests. PDF/DOCX text extraction and explicit Tesseract image OCR are supported when their optional local dependencies are installed.
 8. Broader operational settings validation and safe editable settings persistence; the bounded workbench preference subset is implemented.
-9. Multi-user RBAC, CSRF protections for browser-session deployments, rate limiting and encrypted sensitive storage.
+9. Multi-user RBAC, CSRF protections for browser-session deployments, persistent/distributed rate-limit storage and encrypted sensitive storage.
 10. Workflow builder, multi-agent state machine, critic/verifier, prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware.
 
 ## Definition of done
