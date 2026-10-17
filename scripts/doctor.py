@@ -12,7 +12,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED_MODULES = ("fastapi", "uvicorn", "pydantic", "pydantic_settings", "multipart")
-OPTIONAL_COMMANDS = ("litert-lm", "whisper-cli", "whisper.cpp", "piper", "llama-server")
 
 
 def read_env_file(path: Path) -> dict[str, str]:
@@ -24,8 +23,15 @@ def read_env_file(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip("\\"").strip("'")
+        values[key.strip()] = value.strip().strip('"').strip("'")
     return values
+
+
+def command_available(configured: str | None, fallback: str) -> str | None:
+    candidate = configured or fallback
+    if Path(candidate).is_file() and os.access(candidate, os.X_OK):
+        return candidate
+    return shutil.which(candidate)
 
 
 def main() -> int:
@@ -48,16 +54,13 @@ def main() -> int:
             print(f"FAIL missing Python dependency: {module}")
             failures += 1
 
-    frontend = ROOT / "frontend"
-    if (frontend / "package.json").is_file():
+    if (ROOT / "frontend" / "package.json").is_file():
         print("OK frontend package manifest")
     else:
         print("WARN frontend/package.json is missing")
 
-    if (ROOT / ".env").is_file():
-        print("OK .env exists (values hidden)")
-    else:
-        print("WARN .env is missing; copy .env.example to .env before first run")
+    print("OK .env exists (values hidden)" if (ROOT / ".env").is_file()
+          else "WARN .env is missing; copy .env.example to .env before first run")
 
     for name in ("NOVA_WORKSPACE", "NOVA_DATABASE_PATH", "NOVA_AUDIT_PATH"):
         configured = env.get(name)
@@ -69,12 +72,25 @@ def main() -> int:
         else:
             print(f"INFO {name}: using application default")
 
-    for command in OPTIONAL_COMMANDS:
-        resolved = shutil.which(command)
-        if resolved:
-            print(f"OK optional command {command}: {resolved}")
-        else:
-            print(f"INFO optional command {command}: not found (may be unused)")
+    commands = {
+        "LiteRT-LM": ("NOVA_LITERT_CLI_PATH", "litert-lm"),
+        "whisper.cpp": ("NOVA_WHISPER_CLI_PATH", "whisper-cli"),
+        "Piper": ("NOVA_PIPER_CLI_PATH", "piper"),
+        "llama.cpp (inventory only)": ("NOVA_LLAMA_CPP_SERVER_PATH", "llama-server"),
+    }
+    for label, (setting, fallback) in commands.items():
+        resolved = command_available(env.get(setting), fallback)
+        print(f"OK optional command {label}: {resolved}" if resolved
+              else f"INFO optional command {label}: not found (may be unused)")
+
+    for setting in ("NOVA_WHISPER_MODEL_PATH", "NOVA_PIPER_MODEL_PATH"):
+        configured = env.get(setting)
+        if configured:
+            path = Path(configured).expanduser()
+            if not path.is_absolute():
+                path = ROOT / path
+            print(f"OK {setting}: file exists" if path.is_file()
+                  else f"WARN {setting}: configured file not found")
 
     base_url = env.get("NOVA_LITERT_BASE_URL", "http://127.0.0.1:9379/v1").rstrip("/")
     if not base_url.startswith(("http://127.0.0.1", "http://localhost", "http://[::1]")):
