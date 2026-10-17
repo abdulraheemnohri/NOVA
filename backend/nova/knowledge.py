@@ -19,6 +19,26 @@ _embedding_model = None
 _embedding_model_path: str | None = None
 
 
+def _embedding_model_fingerprint(model_path: Path) -> str:
+    """Fingerprint local model files so cached vectors invalidate after model updates."""
+    digest = hashlib.sha256()
+    root = model_path.resolve()
+    digest.update(str(root).encode("utf-8"))
+    try:
+        for item in sorted(root.rglob("*")):
+            if not item.is_file() or item.is_symlink():
+                continue
+            try:
+                stat = item.stat()
+                relative = item.relative_to(root).as_posix()
+                digest.update(f"{relative}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode("utf-8"))
+            except OSError:
+                continue
+    except OSError:
+        return hashlib.sha256(str(root).encode("utf-8")).hexdigest()
+    return digest.hexdigest()
+
+
 def _local_semantic_scores(query: str, rows) -> dict[str, float] | None:
     global _embedding_model, _embedding_model_path
     if not settings.semantic_retrieval_enabled:
@@ -30,6 +50,7 @@ def _local_semantic_scores(query: str, rows) -> dict[str, float] | None:
         from sentence_transformers import SentenceTransformer
         import numpy as np
         path = str(model_path.resolve())
+        fingerprint = _embedding_model_fingerprint(model_path)
         if _embedding_model is None or _embedding_model_path != path:
             _embedding_model = SentenceTransformer(
                 path, device="cpu", local_files_only=True, trust_remote_code=False
@@ -38,18 +59,77 @@ def _local_semantic_scores(query: str, rows) -> dict[str, float] | None:
         texts = [str(row["content"]) for row in rows]
         if not texts:
             return {}
-        vectors = _embedding_model.encode(
-            texts, normalize_embeddings=True, convert_to_numpy=True,
-            show_progress_bar=False,
-        )
-        query_vector = _embedding_model.encode(
+        con = _connect()
+        try:
+            con.execute("""CREATE TABLE IF NOT EXISTS chunk_embeddings (
+                chunk_id TEXT NOT NULL,
+                model_fingerprint TEXT NOT NULL,
+                content_sha256 TEXT NOT NULL,
+                vector_json TEXT NOT NULL,
+                dimension INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY(chunk_id, model_fingerprint)
+            )""")
+            cached = {}
+            missing = []
+            for row, content in zip(rows, texts):
+                chunk_id = str(row["chunk_id"])
+                content_digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                stored = con.execute(
+                    "SELECT content_sha256, vector_json, dimension FROM chunk_embeddings "
+                    "WHERE chunk_id=? AND model_fingerprint=?",
+                    (chunk_id, fingerprint),
+                ).fetchone()
+                vector = None
+                if stored and stored["content_sha256"] == content_digest:
+                    try:
+                        candidate = np.asarray(json.loads(stored["vector_json"]), dtype=np.float32)
+                        if candidate.ndim == 1 and len(candidate) == int(stored["dimension"]) and np.isfinite(candidate).all():
+                            vector = candidate
+                    except (ValueError, TypeError, json.JSONDecodeError):
+                        vector = None
+                if vector is None:
+                    missing.append((chunk_id, content, content_digest))
+                else:
+                    cached[chunk_id] = vector
+            if missing:
+                encoded = np.asarray(_embedding_model.encode(
+                    [item[1] for item in missing], normalize_embeddings=True,
+                    convert_to_numpy=True, show_progress_bar=False,
+                ), dtype=np.float32)
+                if encoded.ndim != 2 or encoded.shape[0] != len(missing) or not np.isfinite(encoded).all():
+                    raise ValueError("Embedding model returned invalid vectors")
+                now = datetime.now(timezone.utc).isoformat()
+                for item, vector in zip(missing, encoded):
+                    vector = np.asarray(vector, dtype=np.float32)
+                    con.execute(
+                        "INSERT OR REPLACE INTO chunk_embeddings "
+                        "(chunk_id,model_fingerprint,content_sha256,vector_json,dimension,created_at) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (item[0], fingerprint, item[2], json.dumps(vector.tolist(), separators=(",", ":")),
+                         int(vector.size), now),
+                    )
+                    cached[item[0]] = vector
+                con.commit()
+                _audit("knowledge.embedding_cache_updated", {
+                    "model_fingerprint": fingerprint, "vectors_added": len(missing),
+                    "dimensions": int(encoded.shape[1]) if encoded.size else 0,
+                })
+        finally:
+            con.close()
+        query_vector = np.asarray(_embedding_model.encode(
             [query], normalize_embeddings=True, convert_to_numpy=True,
             show_progress_bar=False,
-        )[0]
-        scores = np.asarray(vectors) @ np.asarray(query_vector)
+        )[0], dtype=np.float32)
+        if query_vector.ndim != 1 or not np.isfinite(query_vector).all():
+            raise ValueError("Embedding model returned an invalid query vector")
+        vectors = np.vstack([cached[str(row["chunk_id"])] for row in rows])
+        if vectors.shape[1] != query_vector.shape[0]:
+            raise ValueError("Cached embedding dimensions do not match the query model")
+        scores = vectors @ query_vector
         return {str(row["chunk_id"]): max(0.0, min(1.0, float(score)))
                 for row, score in zip(rows, scores)}
-    except (ImportError, OSError, ValueError, RuntimeError, TypeError):
+    except (ImportError, OSError, ValueError, RuntimeError, TypeError, sqlite3.Error):
         # Optional embeddings must never take down local keyword search.
         return None
 

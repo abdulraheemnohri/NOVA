@@ -164,3 +164,56 @@ def test_scanned_pdf_ocr_is_opt_in(tmp_path, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         knowledge._ocr_scanned_pdf("scan.pdf", b"unused")
     assert exc.value.status_code == 422
+
+
+
+def test_semantic_embedding_vectors_are_persistently_cached(tmp_path, monkeypatch):
+    import sys
+    import types
+    import numpy as np
+    from nova import knowledge
+
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    monkeypatch.setattr(settings, "semantic_retrieval_enabled", True)
+    model_dir = tmp_path / "embeddings"
+    model_dir.mkdir()
+    (model_dir / "config.json").write_text('{"model":"test"}', encoding="utf-8")
+    monkeypatch.setattr(settings, "embedding_model_path", model_dir)
+    knowledge.initialize_knowledge()
+    knowledge._embedding_model = None
+    knowledge._embedding_model_path = None
+
+    class FakeModel:
+        def __init__(self):
+            self.document_batches = []
+        def encode(self, texts, **kwargs):
+            texts = list(texts)
+            if texts == ["alpha chunk", "beta chunk"]:
+                self.document_batches.append(texts)
+                return np.asarray([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+            if texts == ["alpha query"]:
+                return np.asarray([[1.0, 0.0]], dtype=np.float32)
+            raise AssertionError(f"Unexpected encoding batch: {texts!r}")
+
+    fake_model = FakeModel()
+    fake_module = types.ModuleType("sentence_transformers")
+    fake_module.SentenceTransformer = lambda *args, **kwargs: fake_model
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
+    rows = [
+        {"chunk_id": "chunk-a", "content": "alpha chunk"},
+        {"chunk_id": "chunk-b", "content": "beta chunk"},
+    ]
+
+    first = knowledge._local_semantic_scores("alpha query", rows)
+    second = knowledge._local_semantic_scores("alpha query", rows)
+    assert first == second
+    assert first["chunk-a"] > first["chunk-b"]
+    assert fake_model.document_batches == [["alpha chunk", "beta chunk"]]
+
+    con = knowledge._connect()
+    try:
+        count = con.execute("SELECT count(*) FROM chunk_embeddings").fetchone()[0]
+    finally:
+        con.close()
+    assert count == 2
