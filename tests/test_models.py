@@ -75,3 +75,30 @@ def test_local_model_registration_checks_checksum(monkeypatch, tmp_path):
         assert good.status_code == 200, good.text
         selected = client.post("/api/models/select", json={"model_id": "local-test"})
     assert selected.status_code == 200
+
+
+def test_model_selection_refuses_changed_artifact_checksum(monkeypatch, tmp_path):
+    artifact = tmp_path / "tampered.litertlm"
+    artifact.write_bytes(b"original bytes")
+    with _client(monkeypatch, tmp_path) as client:
+        registered = client.post("/api/models/register", json={
+            "model_id": "tampered-model", "name": "Tampered model", "kind": "chat",
+            "file_path": str(artifact), "format": "litertlm",
+        })
+        assert registered.status_code == 200, registered.text
+        artifact.write_bytes(b"changed after registration")
+        response = client.post("/api/models/select", json={"model_id": "tampered-model"})
+    assert response.status_code == 409
+    assert "checksum changed" in response.json()["detail"]
+
+
+def test_litert_registration_requires_expected_extension(monkeypatch, tmp_path):
+    artifact = tmp_path / "model.bin"
+    artifact.write_bytes(b"not a litertlm file")
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.post("/api/models/register", json={
+            "model_id": "wrong-extension", "name": "Wrong extension", "kind": "chat",
+            "file_path": str(artifact), "format": "litertlm",
+        })
+    assert response.status_code == 422
+    assert ".litertlm" in response.json()["detail"]
