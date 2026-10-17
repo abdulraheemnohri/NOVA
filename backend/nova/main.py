@@ -29,8 +29,10 @@ from nova.runtimes import router as runtimes_router
 from nova.scheduler import router as scheduler_router, start_worker, stop_worker, initialize_scheduler_config
 from nova.system_monitor import router as system_router
 from nova.settings_preferences import router as settings_preferences_router
+from nova.security import LocalRateLimiter
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
+app.state.rate_limiter = LocalRateLimiter()
 
 
 @app.middleware("http")
@@ -57,6 +59,29 @@ async def require_local_api_token(request: Request, call_next):
                 content={"detail": "Audit integrity failure; API actions are disabled until an operator investigates."},
             )
     return await call_next(request)
+
+
+@app.middleware("http")
+async def apply_api_security_controls(request: Request, call_next):
+    # Use the direct peer address only; never trust caller-supplied forwarding headers.
+    client_key = request.client.host if request.client else "unknown"
+    limiter: LocalRateLimiter = request.app.state.rate_limiter
+    is_api = request.url.path.startswith("/api/")
+    if is_api and (limiter.auth_blocked(client_key) or not limiter.allow(client_key)):
+        response = JSONResponse(status_code=429, content={"detail": "API rate limit exceeded; retry shortly."})
+    else:
+        response = await call_next(request)
+        if is_api and response.status_code == 401:
+            limiter.record_auth_failure(client_key)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if is_api:
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 app.include_router(knowledge_router)
 app.include_router(model_router)
 app.include_router(huggingface_router)

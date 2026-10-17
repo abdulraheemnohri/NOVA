@@ -18,7 +18,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Local whisper.cpp WAV transcription and Piper WAV synthesis endpoints with bounded inputs/timeouts, shell=False, temporary workspace-local files, and audit events. Piper requires a local ONNX voice and matching metadata sidecar.
 - Runtime Manager UI for engine discovery, transcription, speech synthesis and local audio playback. ONNX/TFLite model execution and llama.cpp chat fallback remain disabled.
 
-## Remaining work (not yet complete)
+## Newly implemented hardening\n- Process-local API request rate limiting and a separate failed-authentication budget, with basic response security headers. This is single-process defense in depth, not multi-user RBAC or an edge limiter.\n\n## Remaining work (not yet complete)
 1. Real target-device smoke tests for whisper.cpp and Piper, plus release-specific LiteRT-LM version reporting and model/accelerator validation.
 2. Semantic RAG with local embeddings, vector/hybrid retrieval and grounded citations.
 3. Approval-bound task execution adapters and production OS-level sandboxing. The current scheduler only dispatches due tasks to human review; it does not execute tools.
