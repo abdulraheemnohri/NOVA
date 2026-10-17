@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 from nova.audit import append_audit
 from nova.config import settings
 from nova.tasks import _connect as _tasks_connect
