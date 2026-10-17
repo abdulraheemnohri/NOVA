@@ -89,3 +89,20 @@ footer { color: #65738c !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
+/* Shared UI primitives */
+select {
+  width: 100%; color: #edf3ff; background: rgba(3, 8, 18, .72);
+  border: 1px solid rgba(155,180,220,.18); border-radius: 13px;
+}
+select:focus-visible { outline: 2px solid var(--nova-cyan); outline-offset: 2px; }
+option { color: #edf3ff; background: #10192b; }
+textarea { resize: vertical; }
+.panel h2, .panel h3 { text-wrap: balance; }
+button:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid var(--nova-cyan); outline-offset: 3px; }
+@media (max-width: 640px) {
+  .mobile-nav { margin-right: -1.1rem; padding-right: 1.1rem; scrollbar-width: thin; }
+  .panel { overflow-wrap: anywhere; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-spin { animation: none !important; }
+}
