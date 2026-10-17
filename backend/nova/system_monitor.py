@@ -1,12 +1,9 @@
 """Read-only local hardware and resource telemetry for the NOVA dashboard."""
 from __future__ import annotations
 
-import json
 import platform
-import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
