@@ -1,0 +1,237 @@
+"""Explicit, bounded Hugging Face Hub discovery and local artifact downloads.
+
+Downloaded files are never executed. NOVA chat inference remains LiteRT-LM-only.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path, PurePosixPath
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from nova.config import settings
+
+router = APIRouter(prefix="/api/models/huggingface", tags=["Hugging Face model hub"])
+_REPO_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
+_ALLOWED_ARTIFACTS = {".litertlm", ".gguf", ".tflite", ".onnx", ".safetensors"}
+_MAX_QUERY = 120
+_DEFAULT_LIMIT = 10
+_MAX_LIMIT = 20
+_CHUNK = 1024 * 1024
+
+
+class DownloadRequest(BaseModel):
+    repo_id: str = Field(min_length=3, max_length=200)
+    filename: str = Field(min_length=1, max_length=500)
+    revision: str = Field(default="main", min_length=1, max_length=120)
+    max_bytes: int | None = Field(default=None, ge=1, le=2_000_000_000)
+
+
+def _token() -> str:
+    # Optional token is read from the environment only; it is never returned to the UI.
+    return os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()
+
+
+def _request(url: str, *, timeout: int = 20):
+    headers = {"User-Agent": "NOVA-local-model-manager/0.1", "Accept": "application/json"}
+    token = _token()
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    req = urllib.request.Request(url, headers=headers)
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _hub_json(url: str) -> Any:
+    try:
+        with _request(url) as response:
+            raw = response.read(5_000_001)
+        if len(raw) > 5_000_000:
+            raise HTTPException(502, "Hugging Face metadata response exceeded the safety limit.")
+        return json.loads(raw.decode("utf-8"))
+    except HTTPException:
+        raise
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            raise HTTPException(401, "Hugging Face authentication is required for this repository.") from exc
+        if exc.code == 403:
+            raise HTTPException(403, "Hugging Face denied access; check model access and optional token.") from exc
+        if exc.code == 404:
+            raise HTTPException(404, "Hugging Face repository or revision was not found.") from exc
+        if exc.code == 429:
+            raise HTTPException(429, "Hugging Face rate limit reached; try again later.") from exc
+        raise HTTPException(502, f"Hugging Face metadata request failed (HTTP {exc.code}).") from exc
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(502, "Could not reach or parse Hugging Face Hub metadata.") from exc
+
+
+def _validate_repo(repo_id: str) -> str:
+    repo_id = repo_id.strip()
+    if not _REPO_ID.fullmatch(repo_id):
+        raise HTTPException(422, "Repository must use the owner/repository format.")
+    return repo_id
+
+
+def _safe_filename(filename: str) -> tuple[str, str]:
+    # Hub filenames may contain subfolders, but never traversal, absolute paths, or URL fragments.
+    path = PurePosixPath(filename)
+    if path.is_absolute() or not path.parts or any(p in {"", ".", ".."} for p in path.parts):
+        raise HTTPException(422, "Unsafe model filename.")
+    if "\\" in filename or "\x00" in filename:
+        raise HTTPException(422, "Unsafe model filename.")
+    ext = Path(path.name).suffix.lower()
+    if ext not in _ALLOWED_ARTIFACTS:
+        raise HTTPException(400, "Only .litertlm, .gguf, .tflite, .onnx, and .safetensors artifacts may be downloaded.")
+    return path.as_posix(), ext
+
+
+@router.get("/search")
+def search_huggingface(q: str = Query(min_length=1, max_length=_MAX_QUERY), limit: int = Query(default=_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT), task: str | None = Query(default=None, max_length=60)):
+    query = q.strip()
+    if not query:
+        raise HTTPException(422, "Enter a search query.")
+    params = {"search": query, "limit": str(limit), "sort": "downloads", "direction": "-1"}
+    if task and task.strip():
+        params["pipeline_tag"] = task.strip()
+    url = "https://huggingface.co/api/models?" + urllib.parse.urlencode(params)
+    results = _hub_json(url)
+    if not isinstance(results, list):
+        raise HTTPException(502, "Unexpected Hugging Face search response.")
+    items = []
+    for item in results[:limit]:
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        items.append({
+            "id": str(item["id"]),
+            "author": item.get("author"),
+            "downloads": item.get("downloads"),
+            "likes": item.get("likes"),
+            "pipeline_tag": item.get("pipeline_tag"),
+            "library_name": item.get("library_name"),
+            "private": item.get("private", False),
+            "gated": item.get("gated", False),
+            "tags": item.get("tags", [])[:20] if isinstance(item.get("tags"), list) else [],
+            "last_modified": item.get("lastModified"),
+        })
+    return {"provider": "Hugging Face Hub", "query": query, "results": items, "download_requires_explicit_action": True}
+
+
+@router.get("/files")
+def list_huggingface_files(repo_id: str = Query(min_length=3, max_length=200), revision: str = Query(default="main", min_length=1, max_length=120)):
+    repo = _validate_repo(repo_id)
+    if "/" in revision or revision in {".", ".."} or "\\" in revision:
+        raise HTTPException(422, "Revision must be a branch, tag, or commit identifier.")
+    url = "https://huggingface.co/api/models/" + urllib.parse.quote(repo, safe="/") + "?" + urllib.parse.urlencode({"revision": revision})
+    detail = _hub_json(url)
+    siblings = detail.get("siblings", []) if isinstance(detail, dict) else []
+    files = []
+    for item in siblings:
+        if not isinstance(item, dict) or not isinstance(item.get("rfilename"), str):
+            continue
+        name = item["rfilename"]
+        ext = Path(name).suffix.lower()
+        size = item.get("size")
+        lfs = item.get("lfs")
+        if size is None and isinstance(lfs, dict):
+            size = lfs.get("size")
+        files.append({"filename": name, "size_bytes": size, "downloadable_artifact": ext in _ALLOWED_ARTIFACTS})
+    return {"repo_id": repo, "revision": revision, "files": files, "gated": detail.get("gated", False), "private": detail.get("private", False)}
+
+
+@router.post("/download")
+def download_huggingface_artifact(req: DownloadRequest):
+    repo = _validate_repo(req.repo_id)
+    filename, extension = _safe_filename(req.filename)
+    revision = req.revision.strip()
+    if not revision or "/" in revision or "\\" in revision or revision in {".", ".."}:
+        raise HTTPException(422, "Revision must be a branch, tag, or commit identifier.")
+
+    # Query metadata first so the UI cannot trick NOVA into blindly streaming arbitrary URLs.
+    detail_url = "https://huggingface.co/api/models/" + urllib.parse.quote(repo, safe="/") + "?" + urllib.parse.urlencode({"revision": revision})
+    detail = _hub_json(detail_url)
+    siblings = detail.get("siblings", []) if isinstance(detail, dict) else []
+    metadata = next((item for item in siblings if isinstance(item, dict) and item.get("rfilename") == filename), None)
+    if metadata is None:
+        raise HTTPException(404, "That exact file is not listed in the selected Hugging Face repository revision.")
+    size = metadata.get("size")
+    lfs = metadata.get("lfs")
+    if size is None and isinstance(lfs, dict):
+        size = lfs.get("size")
+    limit = min(req.max_bytes or settings.huggingface_max_download_bytes, settings.huggingface_max_download_bytes)
+    if isinstance(size, int) and size > limit:
+        raise HTTPException(413, f"Artifact size ({size} bytes) exceeds the configured download limit ({limit} bytes).")
+
+    settings.huggingface_cache_dir.mkdir(parents=True, exist_ok=True)
+    destination_dir = (settings.huggingface_cache_dir / repo.replace("/", "--") / re.sub(r"[^A-Za-z0-9._-]", "_", revision)).resolve()
+    cache_root = settings.huggingface_cache_dir.resolve()
+    if cache_root not in destination_dir.parents:
+        raise HTTPException(403, "Resolved model cache path escaped the configured cache directory.")
+    destination = (destination_dir / filename).resolve()
+    if cache_root not in destination.parents:
+        raise HTTPException(403, "Resolved artifact path escaped the configured cache directory.")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists() and destination.is_file():
+        digest = hashlib.sha256()
+        with destination.open("rb") as stream:
+            for block in iter(lambda: stream.read(_CHUNK), b""):
+                digest.update(block)
+        return {"downloaded": True, "repo_id": repo, "revision": revision, "filename": filename,
+                "file_path": str(destination), "size_bytes": destination.stat().st_size,
+                "sha256": digest.hexdigest(), "cached": True, "format": extension[1:],
+                "inference_enabled": extension == ".litertlm"}
+
+    encoded_filename = "/".join(urllib.parse.quote(part, safe="") for part in filename.split("/"))
+    url = "https://huggingface.co/" + urllib.parse.quote(repo, safe="/") + "/resolve/" + urllib.parse.quote(revision, safe="") + "/" + encoded_filename
+    fd, temp_name = tempfile.mkstemp(prefix=".nova-download-", dir=destination.parent)
+    digest = hashlib.sha256()
+    total = 0
+    try:
+        with os.fdopen(fd, "wb") as output, _request(url, timeout=60) as response:
+            length = response.headers.get("Content-Length")
+            if length and length.isdigit() and int(length) > limit:
+                raise HTTPException(413, "Download response exceeds the configured size limit.")
+            while True:
+                block = response.read(_CHUNK)
+                if not block:
+                    break
+                total += len(block)
+                if total > limit:
+                    raise HTTPException(413, "Download exceeded the configured size limit; partial artifact discarded.")
+                output.write(block)
+                digest.update(block)
+            output.flush()
+            os.fsync(output.fileno())
+        if isinstance(size, int) and total != size:
+            raise HTTPException(502, "Downloaded size did not match Hugging Face metadata; artifact discarded.")
+        os.replace(temp_name, destination)
+    except HTTPException:
+        raise
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401:
+            raise HTTPException(401, "Hugging Face authentication is required for this file.") from exc
+        if exc.code == 403:
+            raise HTTPException(403, "Hugging Face denied the download; check gated access and token.") from exc
+        if exc.code == 404:
+            raise HTTPException(404, "The selected model file or revision was not found.") from exc
+        raise HTTPException(502, f"Hugging Face download failed (HTTP {exc.code}).") from exc
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise HTTPException(502, "Download failed; no artifact was registered.") from exc
+    finally:
+        try:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
+        except OSError:
+            pass
+
+    return {"downloaded": True, "repo_id": repo, "revision": revision, "filename": filename,
+            "file_path": str(destination), "size_bytes": total, "sha256": digest.hexdigest(),
+            "cached": False, "format": extension[1:], "inference_enabled": extension == ".litertlm",
+            "next_step": "Register this local artifact in Model Manager and select it only if it is a compatible LiteRT-LM model."}
