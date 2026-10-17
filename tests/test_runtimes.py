@@ -93,7 +93,7 @@ def test_whisper_rejects_non_wav_upload(tmp_path, monkeypatch):
     monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: "/usr/local/bin/whisper-cli")
     with _client(tmp_path, monkeypatch) as (client, headers):
         response = client.post("/api/runtimes/whisper/transcribe", headers=headers,
-                               files={"file": ("sample.mp3", b"not audio", "audio/mpeg")})
+                               files={"file": ("sample.xyz", b"not audio", "application/octet-stream")})
         assert response.status_code == 415
 
 
