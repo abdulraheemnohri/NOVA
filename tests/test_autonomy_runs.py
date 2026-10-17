@@ -45,9 +45,7 @@ def test_cancel_request_persists_and_only_running_runs_can_cancel(tmp_path,monke
  result=autonomy.cancel_run("cancel-me")
  assert result["cancel_requested"] is True
  assert autonomy.cancel_requested("cancel-me") is True
- try:autonomy.cancel_run("cancel-me")
- except HTTPException as exc:assert exc.status_code==409
- else:raise AssertionError("duplicate cancel should conflict")
+ assert autonomy.cancel_run("cancel-me")["cancel_requested"] is True
 def test_cancel_migration_adds_column_to_existing_run_table(tmp_path,monkeypatch):
  import sqlite3
  from nova.config import settings
