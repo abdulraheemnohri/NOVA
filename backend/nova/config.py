@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     piper_model_path: Path = Path("./data/models/piper/voice.onnx")
     llama_cpp_server_path: str = ""
     onnxruntime_enabled: bool = True
+    semantic_retrieval_enabled: bool = False
+    embedding_model_path: Path = Path("./data/models/embeddings")
     huggingface_cache_dir: Path = Path("./data/models/huggingface")
     huggingface_max_download_bytes: int = 2000000000
     huggingface_token: str = ""

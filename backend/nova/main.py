@@ -193,6 +193,8 @@ def _atomic_write(target: Path, content: bytes):
 
 @app.on_event("startup")
 def startup():
+    # A fresh limiter lifecycle per process start; no counters survive restarts.
+    app.state.rate_limiter = LocalRateLimiter()
     settings.workspace.mkdir(parents=True, exist_ok=True)
     settings.api_token_file.parent.mkdir(parents=True, exist_ok=True)
     if not settings.api_token_file.exists():

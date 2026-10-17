@@ -81,3 +81,35 @@ def test_docx_extraction_rejects_invalid_archive():
     with pytest.raises(HTTPException) as invalid:
         extract_document_text("report.docx", b"not-a-zip")
     assert invalid.value.status_code == 422
+
+
+def test_semantic_retrieval_blends_local_embeddings_with_lexical_scores(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    monkeypatch.setattr(settings, "semantic_retrieval_enabled", True)
+    model_dir = tmp_path / "embeddings"
+    model_dir.mkdir()
+    monkeypatch.setattr(settings, "embedding_model_path", model_dir)
+    initialize_knowledge()
+    import_document(DocumentImport(source_name="alpha.txt", content="The quick fox jumps over a fence."))
+    import_document(DocumentImport(source_name="beta.txt", content="A vehicle transports people along a road."))
+    from nova import knowledge
+    monkeypatch.setattr(knowledge, "_local_semantic_scores", lambda query, rows: {
+        str(row["chunk_id"]): (0.95 if "vehicle" in row["content"] else 0.1)
+        for row in rows
+    })
+    result = search_knowledge(SearchRequest(query="car transportation", limit=5))
+    assert result["method"] == "local_hybrid"
+    assert result["results"][0]["source"] == "beta.txt"
+    assert "semantic_score" in result["results"][0]
+
+
+def test_semantic_retrieval_stays_keyword_only_when_disabled(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    monkeypatch.setattr(settings, "semantic_retrieval_enabled", False)
+    initialize_knowledge()
+    import_document(DocumentImport(source_name="manual.txt", content="Local offline processing is enabled."))
+    result = search_knowledge(SearchRequest(query="offline processing", limit=5))
+    assert result["method"] == "local_keyword"
+    assert result["results"][0]["source"] == "manual.txt"
