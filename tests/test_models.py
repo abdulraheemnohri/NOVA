@@ -31,7 +31,14 @@ def test_model_catalog_includes_voice_and_low_end_profiles(monkeypatch, tmp_path
 
 def test_model_selection_persists_litert_model_locally(monkeypatch, tmp_path):
     with _client(monkeypatch, tmp_path) as client:
-        response = client.post("/api/models/select", json={"model_id": "litert-qwen3-4b-thinking"})
+        artifact = tmp_path / "qwen.litertlm"
+        artifact.write_bytes(b"test model bytes")
+        registered = client.post("/api/models/register", json={
+            "model_id": "local-qwen", "name": "Local Qwen", "kind": "reasoning",
+            "file_path": str(artifact), "format": "litertlm",
+        })
+        assert registered.status_code == 200, registered.text
+        response = client.post("/api/models/select", json={"model_id": "local-qwen"})
         assert response.status_code == 200, response.text
         listed = client.get("/api/models")
     assert listed.status_code == 200
