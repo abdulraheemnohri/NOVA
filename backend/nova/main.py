@@ -33,6 +33,7 @@ from nova.security import LocalRateLimiter
 from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router
 from nova.autonomy import router as autonomy_router
+from nova.updates import router as updates_router, start_worker as start_update_worker, stop_worker as stop_update_worker
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
 app.state.rate_limiter = LocalRateLimiter()
@@ -97,6 +98,7 @@ app.include_router(settings_preferences_router)
 app.include_router(identity_router)
 app.include_router(agent_tools_router)
 app.include_router(autonomy_router)
+app.include_router(updates_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -219,11 +221,13 @@ def startup():
     initialize_knowledge()
     initialize_scheduler_config()
     start_worker()
+    start_update_worker()
 
 
 @app.on_event("shutdown")
 def shutdown():
     stop_worker()
+    stop_update_worker()
 
 
 @app.get("/api/health")
