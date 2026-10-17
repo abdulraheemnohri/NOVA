@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from nova.config import settings
+from nova.audit import append_audit
 
 router = APIRouter(prefix="/api/models", tags=["local model management"])
 
@@ -112,6 +113,7 @@ def select_model(req: SelectModelRequest):
         con.commit()
     finally:
         con.close()
+    append_audit(settings.audit_path, "model_selected", {"model_id": req.model_id, "runtime": "LiteRT-LM"})
     return {"active_model_id": req.model_id, "runtime": "LiteRT-LM", "persisted_locally": True}
 
 @router.post("/register")
@@ -143,6 +145,7 @@ def register_local_model(req: RegisterModelRequest):
         con.commit()
     finally:
         con.close()
+    append_audit(settings.audit_path, "model_registered", {"model_id": req.model_id, "format": req.format.lower(), "sha256": actual, "size_bytes": resolved.stat().st_size})
     return {"registered": True, "model_id": req.model_id, "sha256": actual,
             "size_bytes": resolved.stat().st_size, "format": req.format.lower(),
             "inference_enabled": req.format.lower() == "litertlm"}
