@@ -20,6 +20,7 @@ from nova.audit import append_audit, verify_audit
 from nova.config import settings
 from nova.knowledge import initialize_knowledge, router as knowledge_router
 from nova.litert import LiteRTError, chat, health
+from nova.model_manager import active_model_id, router as model_router
 from nova.policy import evaluate_tool
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
@@ -50,6 +51,7 @@ async def require_local_api_token(request: Request, call_next):
             )
     return await call_next(request)
 app.include_router(knowledge_router)
+app.include_router(model_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -178,12 +180,12 @@ def api_health():
 def api_chat(req: ChatRequest):
     _audit("chat.request", {"message_sha256": hashlib.sha256(req.message.encode()).hexdigest()})
     try:
-        answer = chat(req.message, req.max_tokens)
+        model_id = active_model_id()\n        answer = chat(req.message, req.max_tokens, model_id=model_id)
     except LiteRTError as exc:
         _audit("chat.failure", {"error": str(exc)})
         raise HTTPException(503, str(exc)) from exc
     _audit("chat.response", {"answer_sha256": hashlib.sha256(answer.encode()).hexdigest()})
-    return {"answer": answer, "model": settings.litert_model, "runtime": "LiteRT-LM"}
+    return {"answer": answer, "model": model_id, "runtime": "LiteRT-LM"}
 
 
 @app.get("/api/approvals")
@@ -435,7 +437,7 @@ def get_settings():
         "mode": "offline",
         "llm_runtime": "LiteRT-LM only",
         "litert_base_url": settings.litert_base_url,
-        "model_id": settings.litert_model,
+        "model_id": active_model_id(),
         "require_approval_for_writes": settings.require_approval_for_writes,
         "network_policy": "loopback-only",
         "tool_policy": "default-deny",
