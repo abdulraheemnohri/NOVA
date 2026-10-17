@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 from nova.audit import append_audit
 from nova.config import settings
@@ -22,6 +24,10 @@ from nova.litert import health as litert_health
 router = APIRouter(prefix="/api/runtimes", tags=["model runtimes"])
 
 _MAX_WAV_BYTES = 25_000_000
+
+
+class SynthesisRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
 
 
 def _resolve_executable(configured: str, candidates: tuple[str, ...]) -> str | None:
@@ -131,6 +137,64 @@ def runtime_inventory() -> dict[str, Any]:
 @router.get("")
 def list_runtimes():
     return runtime_inventory()
+
+
+@router.post("/piper/synthesize")
+def synthesize_with_piper(req: SynthesisRequest):
+    """Synthesize speech with a preinstalled local Piper executable and voice model."""
+    executable = _resolve_executable(settings.piper_cli_path, ("piper",))
+    if not executable:
+        raise HTTPException(503, "Piper was not found. Set NOVA_PIPER_CLI_PATH to its executable.")
+    model = settings.piper_model_path.expanduser()
+    if not model.is_file() or model.suffix.lower() != ".onnx":
+        raise HTTPException(503, "Piper voice model is missing. Set NOVA_PIPER_MODEL_PATH to a local .onnx voice.")
+    sidecar = Path(str(model) + ".json")
+    if not sidecar.is_file():
+        raise HTTPException(503, "Piper voice metadata sidecar (.onnx.json) is missing.")
+    workspace = settings.workspace.resolve()
+    audio_dir = workspace / ".nova-audio"
+    if audio_dir.is_symlink():
+        raise HTTPException(403, "Audio work directory must not be a symbolic link.")
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    if workspace not in audio_dir.resolve().parents:
+        raise HTTPException(403, "Audio work directory must remain inside the NOVA workspace.")
+    output_path = audio_dir / f"{uuid.uuid4().hex}-speech.wav"
+    try:
+        timeout = max(10, min(settings.whisper_timeout_seconds, 600))
+        command = [executable, "--model", str(model.resolve()), "--output_file", str(output_path)]
+        try:
+            completed = subprocess.run(
+                command, input=req.text, shell=False, capture_output=True,
+                text=True, timeout=timeout, check=False, cwd=str(workspace),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(504, "Piper speech synthesis timed out.") from exc
+        if completed.returncode != 0:
+            append_audit(settings.audit_path, "runtime.piper.failure", {
+                "return_code": completed.returncode,
+            })
+            raise HTTPException(502, "Piper synthesis failed; verify the voice model and local runtime.")
+        if not output_path.is_file():
+            raise HTTPException(502, "Piper completed without producing a WAV output.")
+        audio = output_path.read_bytes()
+        if len(audio) > _MAX_WAV_BYTES:
+            raise HTTPException(413, "Generated speech exceeds the output size limit.")
+        if len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+            raise HTTPException(502, "Piper output is not a valid RIFF/WAVE file.")
+        append_audit(settings.audit_path, "runtime.piper.synthesized", {
+            "output_bytes": len(audio), "text_chars": len(req.text),
+        })
+        return Response(content=audio, media_type="audio/wav",
+                        headers={"Content-Disposition": 'inline; filename="nova-speech.wav"'})
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(500, "Unable to safely stage or read local speech output.") from exc
+    finally:
+        try:
+            output_path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 @router.post("/whisper/transcribe")
