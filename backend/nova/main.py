@@ -180,7 +180,8 @@ def api_health():
 def api_chat(req: ChatRequest):
     _audit("chat.request", {"message_sha256": hashlib.sha256(req.message.encode()).hexdigest()})
     try:
-        model_id = active_model_id()\n        answer = chat(req.message, req.max_tokens, model_id=model_id)
+        model_id = active_model_id()
+        answer = chat(req.message, req.max_tokens, model_id=model_id)
     except LiteRTError as exc:
         _audit("chat.failure", {"error": str(exc)})
         raise HTTPException(503, str(exc)) from exc
