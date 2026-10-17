@@ -53,6 +53,7 @@ class FileWriteRequest(BaseModel):
 
 class RollbackRequest(BaseModel):
     snapshot_id: str = Field(min_length=1, max_length=80)
+    approval_id: str = Field(min_length=1, max_length=80)
 
 
 def _db():
@@ -314,37 +315,66 @@ def list_snapshots():
 
 @app.post("/api/workspace/rollback")
 def rollback(req: RollbackRequest):
+    # A rollback is destructive: require an approved, snapshot-specific, single-use approval.
     con = _db()
     try:
-        row = con.execute("SELECT * FROM snapshots WHERE id=?", (req.snapshot_id,)).fetchone()
-        if row is None:
+        snapshot = con.execute(
+            "SELECT * FROM snapshots WHERE id=?", (req.snapshot_id,)
+        ).fetchone()
+        if snapshot is None:
             raise HTTPException(404, "Snapshot not found.")
-        if row["rolled_back_at"] is not None:
+        if snapshot["rolled_back_at"] is not None:
             raise HTTPException(409, "This snapshot has already been rolled back.")
-        relative_path = row["relative_path"]
+        approval = con.execute(
+            "SELECT action,payload_json,status FROM approvals WHERE id=?",
+            (req.approval_id,),
+        ).fetchone()
+        if not approval or approval["status"] != "approved" or approval["action"] != "rollback_snapshot":
+            raise HTTPException(403, "A pending or missing rollback approval cannot authorize this action.")
+        try:
+            payload = json.loads(approval["payload_json"])
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        if payload.get("snapshot_id") != req.snapshot_id:
+            raise HTTPException(403, "Rollback approval does not match this snapshot.")
+        claimed = con.execute(
+            "UPDATE approvals SET status='consuming' WHERE id=? AND status='approved'",
+            (req.approval_id,),
+        )
+        if claimed.rowcount != 1:
+            con.rollback()
+            raise HTTPException(403, "Rollback approval has already been consumed.")
+        relative_path = snapshot["relative_path"]
         target = _safe_path(relative_path)
-        if row["existed"]:
-            if not row["backup_path"]:
+        if snapshot["existed"]:
+            if not snapshot["backup_path"]:
                 raise HTTPException(500, "Snapshot metadata is incomplete.")
-            backup = (settings.workspace / row["backup_path"]).resolve()
+            backup = (settings.workspace / snapshot["backup_path"]).resolve()
             snapshot_root = (settings.workspace / ".nova-snapshots").resolve()
             if snapshot_root not in backup.parents or not backup.is_file():
                 raise HTTPException(500, "Snapshot backup is missing or outside snapshot storage.")
             _atomic_write(target, backup.read_bytes())
         else:
-            # The file did not exist before this write, so rollback removes the created file.
             if target.exists():
                 target.unlink()
         con.execute(
             "UPDATE snapshots SET rolled_back_at=CURRENT_TIMESTAMP WHERE id=?",
             (req.snapshot_id,),
         )
+        con.execute(
+            "UPDATE approvals SET status='consumed' WHERE id=? AND status='consuming'",
+            (req.approval_id,),
+        )
         con.commit()
+    except Exception:
+        con.rollback()
+        raise
     finally:
         con.close()
     _audit(
         "workspace.rollback",
-        {"snapshot_id": req.snapshot_id, "path": relative_path, "restored_previous_state": True},
+        {"snapshot_id": req.snapshot_id, "path": relative_path, "approval_id": req.approval_id,
+         "restored_previous_state": True},
     )
     return {"rolled_back": True, "snapshot_id": req.snapshot_id, "path": relative_path}
 
