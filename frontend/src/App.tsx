@@ -7,7 +7,8 @@ type Approval={id:string;action:string;reason:string;status:string;created_at:st
 type Snapshot={id:string;relative_path:string;existed:number;created_at:string;rolled_back_at:string|null};
 type RuntimeSettings={mode?:string;llm_runtime?:string;litert_base_url?:string;model_id?:string;require_approval_for_writes?:boolean;network_policy?:string;tool_policy?:string;rollback_enabled?:boolean};
 type DocumentItem={id:string;source_name:string;content_sha256:string;created_at:string;chunks:number};
-type AuditVerification={valid:boolean;events_verified:number};\nfunction formatPayload(raw?:string){try{return JSON.stringify(JSON.parse(raw||"{}"),null,2)}catch{return raw||"{}"}}
+type AuditVerification={valid:boolean;events_verified:number};
+function formatPayload(raw?:string){try{return JSON.stringify(JSON.parse(raw||"{}"),null,2)}catch{return raw||"{}"}}
 export default function App(){
  const [page,setPage]=useState("Dashboard"),[health,setHealth]=useState<Health|null>(null),[approvals,setApprovals]=useState<Approval[]>([]),[runtimeSettings,setRuntimeSettings]=useState<RuntimeSettings|null>(null);
  const [message,setMessage]=useState(""),[answer,setAnswer]=useState(""),[chatHistory,setChatHistory]=useState<{role:"user"|"assistant";content:string}[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState("");
