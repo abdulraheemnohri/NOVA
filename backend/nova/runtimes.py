@@ -144,6 +144,8 @@ def list_runtimes():
 @router.post("/piper/synthesize")
 def synthesize_with_piper(req: SynthesisRequest):
     """Synthesize speech with a preinstalled local Piper executable and voice model."""
+    if not req.text.strip():
+        raise HTTPException(422, "Text to synthesize must not be blank.")
     executable = _resolve_executable(settings.piper_cli_path, ("piper",))
     if not executable:
         raise HTTPException(503, "Piper was not found. Set NOVA_PIPER_CLI_PATH to its executable.")
@@ -178,9 +180,9 @@ def synthesize_with_piper(req: SynthesisRequest):
             raise HTTPException(502, "Piper synthesis failed; verify the voice model and local runtime.")
         if not output_path.is_file():
             raise HTTPException(502, "Piper completed without producing a WAV output.")
-        audio = output_path.read_bytes()
-        if len(audio) > _MAX_WAV_BYTES:
+        if output_path.stat().st_size > _MAX_WAV_BYTES:
             raise HTTPException(413, "Generated speech exceeds the output size limit.")
+        audio = output_path.read_bytes()
         if len(audio) < 12 or audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
             raise HTTPException(502, "Piper output is not a valid RIFF/WAVE file.")
         append_audit(settings.audit_path, "runtime.piper.synthesized", {
