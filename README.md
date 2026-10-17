@@ -79,3 +79,7 @@ The **Runtimes** page inventories LiteRT-LM, whisper.cpp, Piper, ONNX Runtime, T
 - Full semantic RAG, background scheduler/worker, production-grade process sandboxing, broader vision/OCR adapters, multi-user RBAC, and crash-recovery orchestration remain incomplete.
 
 Read `docs/SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/OFFLINE_DEPLOYMENT.md`, and `docs/ROADMAP.md`.
+
+
+## Optional WhatsApp third-party agents
+NOVA can bridge a WhatsApp Business Cloud API webhook to up to five explicitly configured HTTPS agent endpoints. This is **not** the limited consumer WhatsApp app's agent-linking feature. See [WhatsApp bridge setup](docs/WHATSAPP_SETUP.md) for Meta credentials, sender allowlisting, webhook verification, token environment variables, and the encryption/privacy boundary. The bridge is disabled until credentials, allowed senders, and agent endpoints are configured.

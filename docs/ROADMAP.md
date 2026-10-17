@@ -36,3 +36,6 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 
 ## Definition of done
 A feature is complete only when API, UI controls, persistence, permission checks, audit events, tests, docs, and offline behavior exist and pass CI. Never claim GPU/NPU or model compatibility without a real target-device test.
+
+- [x] Opt-in GitHub updater with trusted repository checks, validation, rollback on test failure, scheduled checks/install settings, and explicit Linux/systemd reboot control. A process restart is still required when reboot is disabled.
+- [x] WhatsApp Cloud API bridge with signed webhooks, sender allowlisting, up to five external agent endpoints, and explicit non-E2E-encryption disclosure. Meta account setup and public webhook deployment remain operator tasks.
