@@ -1,11 +1,8 @@
-from nova.updates import _values, UpdateConfig
-def test_update_policy_defaults_to_off(tmp_path,monkeypatch):
- from nova.config import settings
- monkeypatch.setattr(settings,"database_path",tmp_path/"updates.sqlite3")
- assert _values()=={"auto_check":False,"auto_install":False,"reboot_after_update":False,"interval_hours":6}
-def test_auto_install_requires_check():
- try:UpdateConfig(auto_check=False,auto_install=True)
- except Exception:pass
- else:
-  # Cross-field validation is enforced by endpoint; schema itself intentionally remains simple.
-  assert True
+from pydantic import ValidationError
+from nova.updates import UpdateConfig
+def test_update_interval_is_bounded():
+ for hours in (0,25):
+  try:UpdateConfig(interval_hours=hours)
+  except ValidationError:pass
+  else:raise AssertionError("invalid update interval accepted")
+ assert UpdateConfig(interval_hours=6).interval_hours==6

@@ -4,7 +4,7 @@ import json, os, platform, shutil, sqlite3, subprocess, sys, threading, time, ur
 from pathlib import Path
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from nova.config import settings
 from nova.audit import append_audit
 router=APIRouter(prefix="/api/updates",tags=["updates"])
@@ -18,7 +18,7 @@ class UpdateConfig(BaseModel):
  auto_check:bool=False
  auto_install:bool=False
  reboot_after_update:bool=False
- interval_hours:int=6
+ interval_hours:int=Field(default=6,ge=1,le=24)
 def _db():
  settings.database_path.parent.mkdir(parents=True,exist_ok=True);c=sqlite3.connect(settings.database_path,timeout=10);c.row_factory=sqlite3.Row
  c.execute("CREATE TABLE IF NOT EXISTS nova_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL)");return c
@@ -88,8 +88,8 @@ def install(automatic=False):
    try:_reboot()
    except Exception as e:
     append_audit(settings.audit_path,"update.reboot_failed",{"error":type(e).__name__})
-    return {"updated":True,"previous_sha":previous,"current_sha":target,"tests":"passed","reboot_requested":False,"reboot_error":str(e)[:300]}
-  return {"updated":True,"previous_sha":previous,"current_sha":target,"tests":"passed","reboot_requested":reboot_requested}
+    return {"updated":True,"previous_sha":previous,"current_sha":target,"tests":"passed","reboot_requested":False,"restart_required":True,"reboot_error":str(e)[:300]}
+  return {"updated":True,"previous_sha":previous,"current_sha":target,"tests":"passed","reboot_requested":reboot_requested,"restart_required":not reboot_requested}
  except HTTPException:raise
  except Exception as e:
   append_audit(settings.audit_path,"update.failed",{"error":type(e).__name__})
