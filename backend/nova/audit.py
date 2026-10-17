@@ -20,7 +20,7 @@ def append_audit(path: Path, event_type: str, details: dict[str, Any]) -> dict[s
                  "details": details, "previous_hash": previous}
         event["hash"] = hashlib.sha256(_canonical(event)).hexdigest()
         with path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(event, ensure_ascii=False) + "\\n")
+            stream.write(json.dumps(event, ensure_ascii=False) + "\n")
             stream.flush()
         return event
 
