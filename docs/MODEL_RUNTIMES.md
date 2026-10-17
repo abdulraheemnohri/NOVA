@@ -51,7 +51,7 @@ Restart the backend, open **Runtimes**, and check that both the executable and m
 
 ## Piper TTS
 
-Upstream project and usage: <https://github.com/ggml-org/whisper.cpp> for ASR and <https://github.com/OHF-Voice/piper1-gpl> / <https://github.com/rhasspy/piper> for Piper distributions and voice licensing. Install a compatible local Piper executable and voice `.onnx` plus its metadata sidecar. Configure `NOVA_PIPER_CLI_PATH` and `NOVA_PIPER_MODEL_PATH`. NOVA currently detects these files only; it does not yet synthesize speech or serve generated audio.
+Upstream project and usage: <https://github.com/ggml-org/whisper.cpp> for ASR and <https://github.com/OHF-Voice/piper1-gpl> / <https://github.com/rhasspy/piper> for Piper distributions and voice licensing. Install a compatible local Piper executable and voice `.onnx` plus its metadata sidecar. Configure `NOVA_PIPER_CLI_PATH` and `NOVA_PIPER_MODEL_PATH`. The authenticated `POST /api/runtimes/piper/synthesize` endpoint accepts JSON `{ "text": "..." }` and returns a bounded `audio/wav` response. The Runtimes UI provides text input and local playback. Synthesis runs with `shell=False`, a bounded timeout and a workspace-local temporary output that is removed after the audio is read.
 
 Review each voice/model's license and redistribution conditions before using or packaging it.
 
