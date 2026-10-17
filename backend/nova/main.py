@@ -41,7 +41,8 @@ def _safe_path(relative:str)->Path:
 @app.on_event("startup")
 def startup():
     settings.workspace.mkdir(parents=True,exist_ok=True)
-    con=_db(); con.close()\n    initialize_knowledge()
+    con=_db(); con.close()
+    initialize_knowledge()
 @app.get("/api/health")
 def api_health():
     valid,count=verify_audit(settings.audit_path)
