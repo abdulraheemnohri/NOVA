@@ -39,6 +39,15 @@ async def require_local_api_token(request: Request, call_next):
     supplied = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
     if not expected or not supplied or not hmac.compare_digest(supplied, expected):
         return JSONResponse(status_code=401, content={"detail": "Local API token required or invalid."})
+    # Fail closed before any API handler can mutate state if the audit chain is damaged.
+    # Keep health and the explicit verification endpoint available for diagnosis.
+    if request.url.path not in {"/api/health", "/api/audit/verify"}:
+        valid, _ = verify_audit(settings.audit_path)
+        if not valid:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Audit integrity failure; API actions are disabled until an operator investigates."},
+            )
     return await call_next(request)
 app.include_router(knowledge_router)
 app.add_middleware(
