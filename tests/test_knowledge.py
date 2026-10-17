@@ -113,3 +113,54 @@ def test_semantic_retrieval_stays_keyword_only_when_disabled(tmp_path, monkeypat
     result = search_knowledge(SearchRequest(query="offline processing", limit=5))
     assert result["method"] == "local_keyword"
     assert result["results"][0]["source"] == "manual.txt"
+
+
+
+def test_scanned_pdf_ocr_uses_local_tools_with_bounded_arguments(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    import types
+    from pathlib import Path
+    from nova import knowledge
+
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
+    monkeypatch.setattr(settings, "pdf_ocr_enabled", True)
+    monkeypatch.setattr(settings, "pdf_ocr_max_pages", 2)
+    monkeypatch.setattr(settings, "pdf_ocr_timeout_seconds", 30)
+    monkeypatch.setattr(settings, "pdf_renderer_cli_path", "/usr/bin/pdftoppm")
+    monkeypatch.setattr(settings, "tesseract_cli_path", "/usr/bin/tesseract")
+    monkeypatch.setattr(knowledge, "_resolve_pdf_ocr_binary", lambda configured, candidates: configured)
+    fake_reader = type("FakeReader", (), {"is_encrypted": False, "pages": [object(), object()]})
+    fake_pypdf = types.ModuleType("pypdf")
+    fake_pypdf.PdfReader = lambda *args, **kwargs: fake_reader()
+    monkeypatch.setitem(sys.modules, "pypdf", fake_pypdf)
+
+    commands = []
+    def fake_run(argv, **kwargs):
+        commands.append((argv, kwargs))
+        if argv[0] == "/usr/bin/pdftoppm":
+            assert kwargs["shell"] is False
+            assert "-scale-to" in argv and "2000" in argv
+            Path(argv[-1] + ".png").write_bytes(b"test image")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        assert argv[0] == "/usr/bin/tesseract"
+        return subprocess.CompletedProcess(argv, 0, "recognized scanned text", "")
+    monkeypatch.setattr(knowledge.subprocess, "run", fake_run)
+
+    extracted = knowledge._ocr_scanned_pdf("scan.pdf", b"fake pdf bytes")
+    assert extracted == "recognized scanned text recognized scanned text"
+    assert len(commands) == 4
+    assert all(call[1]["timeout"] <= 30 for call in commands)
+
+
+def test_scanned_pdf_ocr_is_opt_in(tmp_path, monkeypatch):
+    import pytest
+    from fastapi import HTTPException
+    from nova import knowledge
+
+    monkeypatch.setattr(settings, "pdf_ocr_enabled", False)
+    with pytest.raises(HTTPException) as exc:
+        knowledge._ocr_scanned_pdf("scan.pdf", b"unused")
+    assert exc.value.status_code == 422

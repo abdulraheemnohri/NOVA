@@ -3,7 +3,7 @@
 Keyword search is the default. Semantic retrieval is opt-in and loads only a local
 SentenceTransformers model directory; failures fall back to lexical search.
 """
-import hashlib, html, io, json, re, sqlite3, uuid, zipfile
+import hashlib, html, io, json, os, re, shutil, sqlite3, subprocess, tempfile, time, uuid, zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -156,6 +156,104 @@ def extract_document_text(filename: str, data: bytes) -> str:
     return re.sub(r"\s+", " ", extracted).strip()
 
 
+
+def _resolve_pdf_ocr_binary(configured: str, candidates: tuple[str, ...]) -> str | None:
+    if configured.strip():
+        path = Path(configured).expanduser()
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path.resolve())
+        return None
+    for candidate in candidates:
+        found = shutil.which(candidate)
+        if found:
+            return str(Path(found).resolve())
+    return None
+
+
+def _ocr_scanned_pdf(filename: str, data: bytes) -> str:
+    """OCR a bounded PDF with explicitly enabled local Poppler and Tesseract."""
+    if not settings.pdf_ocr_enabled:
+        raise HTTPException(422, "Scanned-PDF OCR is disabled; set NOVA_PDF_OCR_ENABLED=true to enable it.")
+    renderer = _resolve_pdf_ocr_binary(settings.pdf_renderer_cli_path, ("pdftoppm",))
+    tesseract = _resolve_pdf_ocr_binary(settings.tesseract_cli_path, ("tesseract",))
+    if not renderer or not tesseract:
+        raise HTTPException(503, "Scanned-PDF OCR requires local pdftoppm and Tesseract binaries.")
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise HTTPException(503, "Scanned-PDF OCR requires the optional local pypdf dependency.") from exc
+    try:
+        reader = PdfReader(io.BytesIO(data), strict=True)
+        if reader.is_encrypted:
+            raise HTTPException(422, "Encrypted PDFs are not supported for OCR.")
+        page_count = len(reader.pages)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(422, "PDF could not be validated before OCR.") from exc
+    if page_count < 1:
+        raise HTTPException(422, "PDF has no pages to OCR.")
+    if page_count > settings.pdf_ocr_max_pages:
+        raise HTTPException(413, f"Scanned-PDF OCR is limited to {settings.pdf_ocr_max_pages} pages.")
+
+    workspace = settings.workspace.resolve()
+    ocr_root = workspace / ".nova-ocr"
+    if ocr_root.is_symlink():
+        raise HTTPException(403, "OCR work directory must not be a symbolic link.")
+    ocr_root.mkdir(parents=True, exist_ok=True)
+    if workspace not in ocr_root.resolve().parents:
+        raise HTTPException(403, "OCR work directory must remain inside the NOVA workspace.")
+
+    deadline = time.monotonic() + settings.pdf_ocr_timeout_seconds
+    parts: list[str] = []
+    try:
+        with tempfile.TemporaryDirectory(prefix="pdf-ocr-", dir=ocr_root) as temporary:
+            temp_dir = Path(temporary)
+            pdf_path = temp_dir / "input.pdf"
+            with pdf_path.open("xb") as stream:
+                stream.write(data)
+            for page in range(1, page_count + 1):
+                remaining = int(deadline - time.monotonic())
+                if remaining <= 0:
+                    raise HTTPException(504, "Scanned-PDF OCR exceeded its total time budget.")
+                prefix = temp_dir / f"page-{page}"
+                try:
+                    rendered = subprocess.run(
+                        [renderer, "-f", str(page), "-l", str(page), "-png",
+                         "-singlefile", "-scale-to", "2000", str(pdf_path), str(prefix)],
+                        shell=False, capture_output=True, text=True, timeout=remaining,
+                        check=False, cwd=str(temp_dir),
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise HTTPException(504, "PDF page rendering timed out.") from exc
+                image_path = Path(str(prefix) + ".png")
+                if rendered.returncode != 0 or not image_path.is_file():
+                    raise HTTPException(502, "Local Poppler failed to render a PDF page.")
+                if image_path.stat().st_size > 20_000_000:
+                    raise HTTPException(413, "Rendered PDF page exceeds the 20 MB OCR safety limit.")
+                remaining = int(deadline - time.monotonic())
+                if remaining <= 0:
+                    raise HTTPException(504, "Scanned-PDF OCR exceeded its total time budget.")
+                try:
+                    recognized = subprocess.run(
+                        [tesseract, str(image_path), "stdout", "--psm", "6"],
+                        shell=False, capture_output=True, text=True, timeout=remaining,
+                        check=False, cwd=str(temp_dir),
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise HTTPException(504, "Tesseract OCR timed out.") from exc
+                if recognized.returncode != 0:
+                    raise HTTPException(502, "Local Tesseract OCR failed on a rendered page.")
+                parts.append((recognized.stdout or "").strip())
+                if sum(map(len, parts)) > MAX_EXTRACTED_TEXT_CHARS:
+                    raise HTTPException(413, "OCR output exceeds the 2 MB extracted-text limit.")
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(500, "Unable to safely stage local PDF OCR files.") from exc
+    return re.sub(r"\s+", " ", "\n".join(parts)).strip()
+
+
 @router.post("/documents/import-file")
 async def import_document_file(file: UploadFile = File(...)):
     filename = Path(file.filename or "upload").name
@@ -165,14 +263,19 @@ async def import_document_file(file: UploadFile = File(...)):
     if len(data) > MAX_DOCUMENT_UPLOAD_BYTES:
         raise HTTPException(413, "Upload exceeds the 20 MB limit.")
     extracted = extract_document_text(filename, data)
+    extraction = "local text extraction"
+    if not extracted and Path(filename).suffix.lower() == ".pdf" and settings.pdf_ocr_enabled:
+        extracted = _ocr_scanned_pdf(filename, data)
+        extraction = "local Poppler rendering + Tesseract OCR"
     if not extracted:
-        raise HTTPException(422, "Document contains no extractable text. Scanned PDFs need a local OCR adapter.")
+        raise HTTPException(422, "Document contains no extractable text. For scanned PDFs, enable local PDF OCR and install Poppler + Tesseract.")
     result = import_document(DocumentImport(source_name=filename, content=extracted))
     _audit("document.file_extracted", {
         "document_id": result["id"], "source_name": filename,
         "file_sha256": hashlib.sha256(data).hexdigest(), "extracted_chars": len(extracted),
+        "extraction": extraction,
     })
-    return {**result, "extracted_chars": len(extracted), "extraction": "local text extraction; no OCR"}
+    return {**result, "extracted_chars": len(extracted), "extraction": extraction}
 
 class DocumentImport(BaseModel):
     source_name:str=Field(min_length=1,max_length=250)
