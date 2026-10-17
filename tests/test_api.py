@@ -255,3 +255,23 @@ def test_workspace_write_rejects_symlinked_parent(monkeypatch, tmp_path):
     assert response.status_code == 403
     assert (outside_dir / "file.txt").read_text(encoding="utf-8") == "unchanged"
 
+
+
+
+def test_workspace_write_rejects_symlinked_snapshot_store(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    existing = settings.workspace / "protected.txt"
+    existing.write_text("original", encoding="utf-8")
+    outside_store = tmp_path / "outside-snapshots"
+    outside_store.mkdir()
+    settings.workspace.joinpath(".nova-snapshots").symlink_to(outside_store, target_is_directory=True)
+    with _client() as client:
+        approval_id = _approve_write(client, "protected.txt", "changed")
+        response = client.post(
+            "/api/workspace/write",
+            json={"relative_path": "protected.txt", "content": "changed", "approval_id": approval_id},
+        )
+    assert response.status_code == 403
+    assert existing.read_text(encoding="utf-8") == "original"
+    assert list(outside_store.iterdir()) == []
+
