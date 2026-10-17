@@ -61,7 +61,10 @@ def test_unknown_primitive_and_schema_are_rejected(isolated_store):
             name="Math Helper", description="Calculate expressions",
             primitive="calculator", input_schema={"expression": "string", "code": "string"},
         ))
-    assert error.value.status_code == 422def test_skill_run_preflights_all_steps_before_execution(isolated_store, monkeypatch):
+    assert error.value.status_code == 422
+
+
+def test_skill_run_preflights_all_steps_before_execution(isolated_store, monkeypatch):
     import nova.self_improvement as module
     created = create_skill(SkillCreate(
         name="Preflight Skill", description="Check whole plan first",
