@@ -77,7 +77,7 @@ def test_write_snapshot_and_rollback_restores_previous_file(monkeypatch, tmp_pat
     _configure_temp_store(monkeypatch, tmp_path)
     original = settings.workspace / "report.txt"
     original.write_text("original", encoding="utf-8")
-    with TestClient(app) as client:
+    with _client() as client:
         content = "updated report"
         approval_id = _approve_write(client, "report.txt", content)
         written = client.post(
@@ -106,7 +106,7 @@ def test_write_snapshot_and_rollback_restores_previous_file(monkeypatch, tmp_pat
 
 def test_rollback_removes_file_created_by_write(monkeypatch, tmp_path):
     _configure_temp_store(monkeypatch, tmp_path)
-    with TestClient(app) as client:
+    with _client() as client:
         approval_id = _approve_write(client, "new.txt", "new content")
         written = client.post(
             "/api/workspace/write",
@@ -126,7 +126,7 @@ def test_rollback_removes_file_created_by_write(monkeypatch, tmp_path):
 
 def test_workspace_write_rejects_path_traversal(monkeypatch, tmp_path):
     _configure_temp_store(monkeypatch, tmp_path)
-    with TestClient(app) as client:
+    with _client() as client:
         response = client.post(
             "/api/workspace/write",
             json={"relative_path": "../outside.txt", "content": "nope"},
@@ -136,7 +136,7 @@ def test_workspace_write_rejects_path_traversal(monkeypatch, tmp_path):
 
 def test_rollback_requires_matching_approval(monkeypatch, tmp_path):
     _configure_temp_store(monkeypatch, tmp_path)
-    with TestClient(app) as client:
+    with _client() as client:
         approval_id = _approve_write(client, "rollback-check.txt", "created")
         written = client.post(
             "/api/workspace/write",
