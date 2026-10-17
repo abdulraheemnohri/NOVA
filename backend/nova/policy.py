@@ -8,7 +8,7 @@ class Decision:
     allowed: bool
     requires_approval: bool
     reason: str
-_TOOL_POLICY = {"calculator": (Risk.LOW, False), "workspace_read": (Risk.LOW, False),
+_TOOL_POLICY = {"calculator": (Risk.LOW, False), "workspace_read": (Risk.LOW, False), "knowledge_search": (Risk.LOW, False),
                 "workspace_write": (Risk.MEDIUM, True), "rollback_snapshot": (Risk.HIGH, True),
                 "sandbox_code": (Risk.HIGH, True),
                 "delete": (Risk.CRITICAL, True)}
