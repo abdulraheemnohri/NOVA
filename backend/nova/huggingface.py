@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from nova.config import settings
+from nova.audit import append_audit
 
 router = APIRouter(prefix="/api/models/huggingface", tags=["Hugging Face model hub"])
 _REPO_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
@@ -91,6 +92,15 @@ def _safe_filename(filename: str) -> tuple[str, str]:
     if ext not in _ALLOWED_ARTIFACTS:
         raise HTTPException(400, "Only .litertlm, .gguf, .tflite, .onnx, and .safetensors artifacts may be downloaded.")
     return path.as_posix(), ext
+
+
+@router.get("/status")
+def huggingface_status():
+    return {"provider": "Hugging Face Hub", "enabled": True, "token_configured": bool(_token()),
+            "token_source": "NOVA_HUGGINGFACE_TOKEN environment variable",
+            "cache_dir": str(settings.huggingface_cache_dir),
+            "max_download_bytes": settings.huggingface_max_download_bytes,
+            "inference_policy": "Hugging Face supplies files/metadata only; chat inference remains LiteRT-LM-only."}
 
 
 @router.get("/search")
