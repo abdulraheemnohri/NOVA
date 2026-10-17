@@ -269,6 +269,9 @@ def decide(approval_id: str, decision: str):
 @app.post("/api/workspace/write")
 def write_file(req: FileWriteRequest):
     target = _safe_path(req.relative_path)
+    snapshot_dir = settings.workspace / ".nova-snapshots"
+    if snapshot_dir.is_symlink():
+        raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
     content = req.content.encode("utf-8")
     content_hash = hashlib.sha256(content).hexdigest()
     approved = False
@@ -305,10 +308,14 @@ def write_file(req: FileWriteRequest):
 
     snapshot_id = str(uuid.uuid4())
     existed = target.is_file()
-    snapshot_dir = settings.workspace / ".nova-snapshots"
     backup_path = None
     if existed:
+        # Recheck immediately before touching the internal recovery directory.
+        if snapshot_dir.is_symlink():
+            raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
         snapshot_dir.mkdir(parents=True, exist_ok=True)
+        if snapshot_dir.is_symlink():
+            raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
         backup = snapshot_dir / f"{snapshot_id}.bak"
         backup.write_bytes(target.read_bytes())
         backup_path = str(backup.relative_to(settings.workspace))
@@ -407,8 +414,14 @@ def rollback(req: RollbackRequest):
         if snapshot["existed"]:
             if not snapshot["backup_path"]:
                 raise HTTPException(500, "Snapshot metadata is incomplete.")
+            snapshot_store = settings.workspace / ".nova-snapshots"
+            if snapshot_store.is_symlink():
+                raise HTTPException(500, "The internal snapshot store must not be a symbolic link.")
+            workspace_root = settings.workspace.resolve()
+            snapshot_root = snapshot_store.resolve()
+            if snapshot_root.parent != workspace_root or snapshot_root.name != ".nova-snapshots":
+                raise HTTPException(500, "The internal snapshot store is outside its expected location.")
             backup = (settings.workspace / snapshot["backup_path"]).resolve()
-            snapshot_root = (settings.workspace / ".nova-snapshots").resolve()
             if snapshot_root not in backup.parents or not backup.is_file():
                 raise HTTPException(500, "Snapshot backup is missing or outside snapshot storage.")
             _atomic_write(target, backup.read_bytes())
