@@ -9,7 +9,8 @@ class Decision:
     requires_approval: bool
     reason: str
 _TOOL_POLICY = {"calculator": (Risk.LOW, False), "workspace_read": (Risk.LOW, False),
-                "workspace_write": (Risk.MEDIUM, True), "sandbox_code": (Risk.HIGH, True),
+                "workspace_write": (Risk.MEDIUM, True), "rollback_snapshot": (Risk.HIGH, True),
+                "sandbox_code": (Risk.HIGH, True),
                 "delete": (Risk.CRITICAL, True)}
 def evaluate_tool(name: str, approved: bool=False) -> Decision:
     policy = _TOOL_POLICY.get(name)
