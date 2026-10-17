@@ -4,8 +4,8 @@
 2. Record SHA-256 checksums and transfer artifacts using approved media.
 3. Install Python from a local wheelhouse: `pip install --no-index --find-links ./wheelhouse -e '.[dev]'`.
 4. Prepare the npm cache/package archive; ordinary `npm install` may require registry access.
-5. Install LiteRT-LM using instructions for the exact release and architecture; validate actual supported CLI/API flags.
-6. Bind its server to `127.0.0.1` and configure `NOVA_LITERT_BASE_URL` and `NOVA_LITERT_MODEL`.
+5. Install LiteRT-LM using instructions for the exact release and architecture; validate actual supported CLI/API flags. The documented OpenAI-compatible server defaults to port 9379.
+6. Start it with `litert-lm serve --host 127.0.0.1 --port 9379` and configure `NOVA_LITERT_BASE_URL=http://127.0.0.1:9379/v1` plus `NOVA_LITERT_MODEL` (the model ID must exist in the LiteRT-LM server registry).
 7. Register a model artifact in Model Manager using its absolute path on the backend host. Confirm its SHA-256 and format before selecting it. The current registry accepts individual files, not directory bundles.
 8. Optional connected setup: use the Hugging Face page to search model metadata and explicitly download supported artifacts. Set `NOVA_HUGGINGFACE_CACHE_DIR` and `NOVA_HUGGINGFACE_MAX_DOWNLOAD_BYTES` as needed. For gated/private repositories, set `NOVA_HUGGINGFACE_TOKEN` in the backend environment; never commit the token.
 9. Review each model card and license, confirm provenance and checksums, then register/select only a compatible LiteRT-LM artifact. Other formats are inventory-only.
