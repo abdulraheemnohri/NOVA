@@ -10,7 +10,7 @@ The authenticated `GET /api/runtimes` endpoint and the **Runtimes** UI page repo
 |---|---|---|
 | LiteRT-LM | Chat and reasoning | Existing primary chat adapter |
 | whisper.cpp | Offline speech-to-text | Implemented WAV transcription endpoint |
-| Piper | Local text-to-speech | Discovery/configuration only; generation endpoint not implemented |
+| Piper | Local text-to-speech | Implemented WAV synthesis endpoint using local executable and voice model |
 | ONNX Runtime | Compatible ONNX models for embeddings, OCR, audio and classification | Package detection only; task adapters pending |
 | TensorFlow Lite / LiteRT Python packages | Edge vision/audio/classification | Package detection only; task adapters pending |
 | llama.cpp | GGUF model serving | Optional binary detection only; not used for NOVA chat |
