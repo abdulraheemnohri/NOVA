@@ -25,9 +25,9 @@ def health() -> dict:
     except (URLError, HTTPError, TimeoutError, ValueError, OSError):
         return {"reachable": False, "base_url": base, "message":"LiteRT-LM endpoint unavailable/incompatible; no fallback."}
 
-def chat(message: str, max_tokens: int=512) -> str:
+def chat(message: str, max_tokens: int=512, model_id: str | None = None) -> str:
     base=_base()
-    body=json.dumps({"model":settings.litert_model,"messages":[{"role":"user","content":message}],
+    body=json.dumps({"model":model_id or settings.litert_model,"messages":[{"role":"user","content":message}],
                      "max_tokens":max(1,min(max_tokens,4096)),"temperature":0.2}).encode()
     req=Request(base+"/chat/completions",data=body,headers={"Content-Type":"application/json"},method="POST")
     try:
