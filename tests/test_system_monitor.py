@@ -35,3 +35,47 @@ def test_system_metrics_endpoint_requires_local_api_token(tmp_path, monkeypatch)
     with _client(tmp_path, monkeypatch) as (client, _):
         response = client.get("/api/system")
         assert response.status_code == 401
+
+
+
+def test_sysfs_gpu_reader_parses_amd_metrics(tmp_path):
+    from nova.system_monitor import _sysfs_gpus
+
+    device = tmp_path / "card0" / "device"
+    (device / "hwmon" / "hwmon0").mkdir(parents=True)
+    (device / "vendor").write_text("0x1002")
+    (device / "device").write_text("0x744c")
+    (device / "product_name").write_text("AMD Radeon Test")
+    (device / "gpu_busy_percent").write_text("42")
+    (device / "mem_info_vram_total").write_text(str(16 * 1024**3))
+    (device / "mem_info_vram_used").write_text(str(4 * 1024**3))
+    (device / "hwmon" / "hwmon0" / "temp1_input").write_text("65000")
+
+    result = _sysfs_gpus(tmp_path)
+    assert len(result) == 1
+    assert result[0]["vendor"] == "AMD"
+    assert result[0]["name"] == "AMD Radeon Test"
+    assert result[0]["utilization_percent"] == 42
+    assert result[0]["memory_total_mb"] == 16384
+    assert result[0]["memory_used_mb"] == 4096
+    assert result[0]["temperature_c"] == 65
+
+
+def test_sysfs_gpu_reader_supports_intel_and_ignores_other_vendors(tmp_path):
+    from nova.system_monitor import _sysfs_gpus
+
+    intel = tmp_path / "card0" / "device"
+    intel.mkdir(parents=True)
+    (intel / "vendor").write_text("0x8086")
+    (intel / "device").write_text("0x7d55")
+    (intel / "gpu_busy_percent").write_text("not-a-number")
+    other = tmp_path / "card1" / "device"
+    other.mkdir(parents=True)
+    (other / "vendor").write_text("0x10de")
+    (other / "device").write_text("0x2684")
+
+    result = _sysfs_gpus(tmp_path)
+    assert len(result) == 1
+    assert result[0]["vendor"] == "Intel"
+    assert result[0]["utilization_percent"] is None
+    assert result[0]["telemetry"] == "Linux sysfs (best-effort)"

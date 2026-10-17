@@ -86,6 +86,69 @@ def _nvidia_gpus() -> list[dict[str, Any]]:
     return devices
 
 
+
+def _sysfs_gpus(base: Path | None = None) -> list[dict[str, Any]]:
+    """Read best-effort AMD/Intel GPU telemetry from Linux sysfs without changing device state."""
+    drm_root = base if base is not None else Path("/sys/class/drm")
+    devices: list[dict[str, Any]] = []
+    try:
+        cards = sorted(drm_root.glob("card[0-9]*"))
+    except OSError:
+        return devices
+
+    def read_number(path: Path, divisor: float = 1.0) -> float | None:
+        try:
+            value = float(path.read_text(encoding="ascii").strip())
+            return round(value / divisor, 1)
+        except (OSError, ValueError, OverflowError):
+            return None
+
+    for card in cards[:16]:
+        device = card / "device"
+        try:
+            vendor_id = (device / "vendor").read_text(encoding="ascii").strip().lower()
+            device_id = (device / "device").read_text(encoding="ascii").strip().lower()
+        except OSError:
+            continue
+        vendor = {"0x1002": "AMD", "0x8086": "Intel"}.get(vendor_id)
+        if vendor is None:
+            continue
+
+        name = None
+        for name_file in (device / "product_name", device / "label"):
+            try:
+                name = name_file.read_text(encoding="utf-8", errors="replace").strip()
+            except OSError:
+                continue
+            if name:
+                break
+        if not name:
+            name = f"{vendor} graphics ({device_id})"
+
+        utilization = read_number(device / "gpu_busy_percent")
+        total_mb = read_number(device / "mem_info_vram_total", 1024 * 1024)
+        used_mb = read_number(device / "mem_info_vram_used", 1024 * 1024)
+        temperature = None
+        try:
+            sensors = list((device / "hwmon").glob("hwmon*/temp*_input"))
+        except OSError:
+            sensors = []
+        for sensor in sensors[:8]:
+            candidate = read_number(sensor, 1000)
+            if candidate is not None and -20 <= candidate <= 150:
+                temperature = candidate
+                break
+        devices.append({
+            "name": name[:120],
+            "vendor": vendor,
+            "utilization_percent": utilization if utilization is None or 0 <= utilization <= 100 else None,
+            "memory_total_mb": total_mb,
+            "memory_used_mb": used_mb,
+            "temperature_c": temperature,
+            "telemetry": "Linux sysfs (best-effort)",
+        })
+    return devices
+
 def _accelerator_hints() -> dict[str, Any]:
     """Report device-node hints only; don't load drivers or run vendor management tools."""
     base = Path("/sys/bus/pci/devices")
@@ -139,7 +202,7 @@ def collect_system_metrics() -> dict[str, Any]:
     except (AttributeError, OSError, RuntimeError):
         battery = None
 
-    gpus = _nvidia_gpus()
+    gpus = _nvidia_gpus() + _sysfs_gpus()
     accelerators = _accelerator_hints()
     return {
         "collected_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
@@ -161,7 +224,7 @@ def collect_system_metrics() -> dict[str, Any]:
         "tpu": accelerators["tpu"],
         "notes": [
             "Read-only telemetry; NOVA does not change clock, voltage, fan, charging, or power settings.",
-            "GPU metrics currently use the NVIDIA nvidia-smi adapter; other vendors may be detected without detailed utilization.",
+            "GPU telemetry uses NVIDIA nvidia-smi plus best-effort AMD/Intel Linux sysfs counters; availability depends on kernel and driver support.",
             "NPU/TPU detection is best-effort and depends on OS device nodes and permissions.",
             "A missing battery means the OS did not expose a battery sensor (common on desktops).",
         ],
