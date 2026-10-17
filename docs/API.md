@@ -45,3 +45,9 @@ A workspace rollback is a high-risk action. Create an approval with action `roll
 
 ## Chat retrieval and source metadata
 `POST /chat` performs local keyword retrieval against indexed document chunks before inference. When matches exist, bounded excerpts are included in the prompt with an explicit untrusted-data warning; the response returns a separate `sources` array containing document/chunk IDs and lexical overlap scores. Scores are not calibrated confidence values, and this is not semantic/vector RAG. The model can still make unsupported claims; inspect source excerpts before relying on an answer.
+
+
+## Self-created skills and safe tool proposals
+- `GET /self/skills`, `POST /self/skills`, `POST /self/skills/{id}/activate`: persist and explicitly activate user-reviewed skill instructions. Instructions are stored as data and are not interpreted as code.
+- `GET /self/tools`, `POST /self/tools`, `POST /self/tools/{id}/review`: list, propose, and review tools limited to existing calculator and local knowledge-search primitives with exact fixed schemas. Review does not register new capabilities or execute generated code.
+- These endpoints are under `/api`; the normal local bearer-token and audit-integrity middleware applies.
