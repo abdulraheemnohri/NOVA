@@ -55,6 +55,8 @@ class MemoryCreate(BaseModel):
 class GoalCreate(BaseModel):
     title:str=Field(min_length=1,max_length=250)
     description:str=Field(min_length=1,max_length=5000)
+class GoalStatusUpdate(BaseModel):
+    status:str=Field(pattern="^(open|in_progress|completed|paused)$")
 
 @router.post("/documents/import")
 def import_document(req:DocumentImport):
@@ -134,3 +136,14 @@ def list_goals():
     try: rows=con.execute("SELECT id,title,description,status,created_at FROM goals ORDER BY created_at DESC").fetchall()
     finally: con.close()
     return [dict(r) for r in rows]
+@router.post("/goals/{goal_id}/status")
+def update_goal_status(goal_id:str, req:GoalStatusUpdate):
+    con=_connect()
+    try:
+        row=con.execute("SELECT status FROM goals WHERE id=?",(goal_id,)).fetchone()
+        if not row: raise HTTPException(404,"Goal not found.")
+        con.execute("UPDATE goals SET status=? WHERE id=?",(req.status,goal_id))
+        con.commit()
+    finally: con.close()
+    _audit("goal.status_changed",{"goal_id":goal_id,"previous_status":row["status"],"status":req.status})
+    return {"id":goal_id,"status":req.status}
