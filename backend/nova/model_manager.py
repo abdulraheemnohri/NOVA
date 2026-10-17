@@ -92,11 +92,14 @@ def list_models():
 
 @router.post("/select")
 def select_model(req: SelectModelRequest):
-    candidate = next((item for item in CATALOG if item["id"] == req.model_id), None)
+    candidate = next((item for item in _local_registry() if item["model_id"] == req.model_id), None)
     if candidate is None:
-        candidate = next((item for item in _local_registry() if item["model_id"] == req.model_id), None)
-    if candidate is None:
-        raise HTTPException(404, "Model is not in the catalog or local registry.")
+        if req.model_id == settings.litert_model:
+            candidate = {"model_id": settings.litert_model, "format": "litertlm"}
+        elif any(item["id"] == req.model_id for item in CATALOG):
+            raise HTTPException(409, "Catalog entry is not registered as a local artifact. Register and verify the model file before selecting it.")
+        else:
+            raise HTTPException(404, "Model is not in the catalog or local registry.")
     fmt = candidate.get("format", "")
     if fmt != "litertlm":
         raise HTTPException(400, "This model type has no LiteRT-LM inference adapter; it cannot be selected for chat.")
