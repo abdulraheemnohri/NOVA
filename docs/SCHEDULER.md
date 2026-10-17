@@ -12,9 +12,9 @@ NOVA's scheduler is intentionally conservative. A task is eligible when its time
 - Claims expire after 60 seconds. A later pass can recover expired claims. Retry metadata is bounded to five claims; unexpected dispatch errors are recorded and audit logged.
 - All API calls require the local bearer token and a valid audit chain, except public health and audit verification routes.
 
-## UI
+## Settings and UI
 
-Open **Scheduler** in the local dashboard to inspect worker status and run one pass. The screen explicitly reports that tool execution is not enabled.
+Open **Scheduler** in the local dashboard to inspect worker status, edit the opt-in worker toggle and poll interval, and run one pass. Settings are persisted in the local SQLite database and loaded on startup; environment variables provide initial defaults until the operator saves settings. The screen explicitly reports that tool execution is not enabled.
 
 ## Not yet implemented
 
