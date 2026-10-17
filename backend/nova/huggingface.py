@@ -42,13 +42,28 @@ def _token() -> str:
     return (settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "")).strip()
 
 
+class _HubRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Permit redirects only to HTTPS Hugging Face/CDN hosts used for model artifacts."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urllib.parse.urlparse(newurl)
+        host = (parsed.hostname or "").lower()
+        allowed = host == "huggingface.co" or host.endswith(".huggingface.co") or host.endswith(".hf.co") or host.endswith(".amazonaws.com")
+        if parsed.scheme != "https" or not allowed:
+            raise urllib.error.HTTPError(newurl, code, "Blocked untrusted Hugging Face redirect", headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _request(url: str, *, timeout: int = 20):
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname != "huggingface.co":
+        raise HTTPException(400, "Hugging Face requests must target the official HTTPS host.")
     headers = {"User-Agent": "NOVA-local-model-manager/0.1", "Accept": "application/json"}
     token = _token()
     if token:
         headers["Authorization"] = "Bearer " + token
     req = urllib.request.Request(url, headers=headers)
-    return urllib.request.urlopen(req, timeout=timeout)
+    opener = urllib.request.build_opener(_HubRedirectHandler())
+    return opener.open(req, timeout=timeout)
 
 
 def _hub_json(url: str) -> Any:
