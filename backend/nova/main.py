@@ -34,6 +34,7 @@ from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router
 from nova.autonomy import router as autonomy_router
 from nova.updates import router as updates_router, start_worker as start_update_worker, stop_worker as stop_update_worker
+from nova.whatsapp import router as whatsapp_router
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
 app.state.rate_limiter = LocalRateLimiter()
@@ -43,7 +44,7 @@ app.state.rate_limiter = LocalRateLimiter()
 async def require_local_api_token(request: Request, call_next):
     # Health is intentionally public for local process supervision; all other API routes
     # require the generated, file-backed bearer token.
-    if request.url.path == "/api/health" or not request.url.path.startswith("/api/"):
+    if request.url.path == "/api/health" or (request.url.path == "/api/whatsapp/webhook" and request.method in {"GET", "POST"}) or not request.url.path.startswith("/api/"):
         return await call_next(request)
     try:
         expected = settings.api_token_file.read_text(encoding="utf-8").strip()
@@ -99,6 +100,7 @@ app.include_router(identity_router)
 app.include_router(agent_tools_router)
 app.include_router(autonomy_router)
 app.include_router(updates_router)
+app.include_router(whatsapp_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
