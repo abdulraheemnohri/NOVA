@@ -105,6 +105,9 @@ def _safe_path(relative: str) -> Path:
     candidate = Path(relative)
     if candidate.is_absolute() or any(part == ".." for part in candidate.parts):
         raise HTTPException(403, "Path must be relative and remain inside the workspace.")
+    # Snapshot backups are internal recovery state, never ordinary user workspace files.
+    if candidate.parts and candidate.parts[0] == ".nova-snapshots":
+        raise HTTPException(403, "The internal snapshot store is reserved and cannot be accessed as a workspace path.")
     root = settings.workspace.resolve()
     target = (root / candidate).resolve()
     if target == root or root not in target.parents:
