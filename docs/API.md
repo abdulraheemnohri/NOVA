@@ -2,6 +2,11 @@
 
 Base URL: `http://127.0.0.1:8000/api`. All endpoints except `GET /health` require `Authorization: Bearer <token>`. On first startup, read the locally generated token from `data/api.token` (or `NOVA_API_TOKEN_FILE` if configured). The API never returns the token. Keep the service bound to loopback; do not expose it to a LAN or public interface.
 
+## Scheduler
+- `GET /scheduler/status`: report worker state, due backlog, active leases and execution contract.
+- `PUT /scheduler/config`: persist the background-worker toggle and poll interval (5–3600 seconds) in local SQLite. This only changes scheduling; it does not grant tool permissions.
+- `POST /scheduler/run-once`: dispatch due tasks to `planned` for operator review. No commands or tools are executed.
+
 ## Runtime
 - `GET /health`: API status, LiteRT-LM endpoint reachability, and audit-chain verification.
 - `GET /settings`: read-only runtime and policy summary.
