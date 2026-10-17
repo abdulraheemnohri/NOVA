@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     litert_base_url: str = "http://127.0.0.1:9379/v1"
     litert_model: str = "local-model"
     whisper_cli_path: str = ""
+    ffmpeg_cli_path: str = ""
     whisper_model_path: Path = Path("./data/models/whisper/ggml-base.bin")
     whisper_timeout_seconds: int = 180
     whisper_max_upload_bytes: int = 25000000
@@ -28,6 +29,10 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = False
     scheduler_interval_seconds: int = Field(default=15, ge=5, le=3600)
     tesseract_cli_path: str = ""
+    pdf_ocr_enabled: bool = False
+    pdf_renderer_cli_path: str = ""
+    pdf_ocr_max_pages: int = Field(default=10, ge=1, le=50)
+    pdf_ocr_timeout_seconds: int = Field(default=180, ge=10, le=600)
     ocr_timeout_seconds: int = Field(default=60, ge=5, le=180)
     ocr_max_upload_bytes: int = Field(default=15000000, ge=1024, le=25000000)
 
