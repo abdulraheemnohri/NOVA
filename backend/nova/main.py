@@ -180,6 +180,12 @@ def startup():
     con = _db()
     con.close()
     initialize_knowledge()
+    start_worker()
+
+
+@app.on_event("shutdown")
+def shutdown():
+    stop_worker()
 
 
 @app.get("/api/health")

@@ -39,6 +39,7 @@ def _ensure_columns(con) -> None:
     for name, definition in migrations.items():
         if name not in existing:
             con.execute(f"ALTER TABLE tasks ADD COLUMN {name} {definition}")
+    con.commit()
 
 
 def scheduler_status() -> dict[str, Any]:

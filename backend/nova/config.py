@@ -1,4 +1,5 @@
 from pathlib import Path
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -23,6 +24,6 @@ class Settings(BaseSettings):
     huggingface_token: str = ""
     require_approval_for_writes: bool = True
     scheduler_enabled: bool = False
-    scheduler_interval_seconds: int = 15
+    scheduler_interval_seconds: int = Field(default=15, ge=5, le=3600)
 
 settings = Settings()
