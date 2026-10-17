@@ -141,8 +141,13 @@ def test_skill_run_persists_each_checkpoint_and_can_be_cancelled(isolated_store,
     activate_skill(created["id"])
     original_calculator = module.calculator
     requested = []
+    calls = {"count": 0}
     def cancel_after_first_step(expression):
         result = original_calculator(expression)
+        calls["count"] += 1
+        # The whole-plan preflight evaluates both expressions before a run exists.
+        if calls["count"] <= 2:
+            return result
         con = module.db()
         try:
             run = con.execute("SELECT id FROM self_skill_runs WHERE skill_id=? AND status='running'", (created["id"],)).fetchone()
