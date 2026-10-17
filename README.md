@@ -36,7 +36,7 @@ Open **Diagnostics** in the dashboard or call `GET /api/diagnostics` with the lo
 
 ## Local model runtimes and speech
 
-The **Runtimes** page inventories LiteRT-LM, whisper.cpp, Piper, ONNX Runtime, TensorFlow Lite/LiteRT Python packages, llama.cpp and Transformers. LiteRT-LM remains the only chat runtime; optional runtimes are task-scoped and never silent fallbacks. The first additional inference adapter is local whisper.cpp WAV transcription via `POST /api/runtimes/whisper/transcribe`. Piper TTS and ONNX/TFLite task adapters are not yet implemented. Setup, environment variables, security boundaries and model licensing notes are in `docs/MODEL_RUNTIMES.md`.
+The **Runtimes** page inventories LiteRT-LM, whisper.cpp, Piper, ONNX Runtime, TensorFlow Lite/LiteRT Python packages, llama.cpp and Transformers. LiteRT-LM remains the only chat runtime; optional runtimes are task-scoped and never silent fallbacks. Additional inference adapters include local whisper.cpp WAV transcription via `POST /api/runtimes/whisper/transcribe` and Piper WAV synthesis via `POST /api/runtimes/piper/synthesize`. ONNX/TFLite model execution remains discovery-only until task-specific adapters are implemented. Setup, environment variables, security boundaries and model licensing notes are in `docs/MODEL_RUNTIMES.md`.
 
 ## Security status
 - Default-deny tool policy; unknown tools are blocked.
