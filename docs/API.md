@@ -39,7 +39,7 @@ A workspace rollback is a high-risk action. Create an approval with action `roll
 
 ## Persisted operator preferences
 - `GET /settings/preferences`: read locally persisted workbench preferences.
-- `PUT /settings/preferences`: validate and persist `chat_max_tokens` (64–4096), `auto_refresh_seconds` (0–300; 0 disables polling), and `confirm_model_selection` (boolean). Unknown fields are rejected.
+- `PUT /settings/preferences`: validate and persist `chat_max_tokens` (64–4096), `chat_temperature` (0.0–1.5; default 0.2), `auto_refresh_seconds` (0–300; 0 disables polling), and `confirm_model_selection` (boolean). Unknown fields are rejected. The saved temperature is applied to each LiteRT-LM chat request.
 - Preference changes are stored in the local SQLite settings table and appended to the audit chain. These preferences cannot change the inference runtime, network binding, tool allowlist, or weaken approval policy.
 
 
