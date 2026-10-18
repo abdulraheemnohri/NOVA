@@ -396,3 +396,41 @@ def test_chat_can_explicitly_invoke_an_active_read_only_skill(monkeypatch, tmp_p
         assert "Skill run completed" in body
         assert '"words": 2' in body
 
+
+
+def test_lifespan_initializes_services_and_stops_workers(monkeypatch, tmp_path):
+    import nova.main as main
+
+    monkeypatch.setattr(settings, "api_token_file", tmp_path / "data" / "api.token")
+    monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+
+    calls = []
+    monkeypatch.setattr(main, "_recover_interrupted_approvals", lambda: calls.append("approval_recovery"))
+    monkeypatch.setattr("nova.autonomy.recover_interrupted_runs", lambda: calls.append("autonomy_recovery"))
+    monkeypatch.setattr("nova.self_improvement.recover_interrupted_skill_runs", lambda: calls.append("skill_recovery"))
+    monkeypatch.setattr(main, "recover_interrupted_workflow_runs", lambda: calls.append("workflow_recovery"))
+    monkeypatch.setattr(main, "initialize_knowledge", lambda: calls.append("knowledge"))
+    monkeypatch.setattr(main, "initialize_scheduler_config", lambda: calls.append("scheduler_config"))
+    monkeypatch.setattr(main, "start_worker", lambda: calls.append("scheduler_start"))
+    monkeypatch.setattr(main, "start_update_worker", lambda: calls.append("updater_start"))
+    monkeypatch.setattr(main, "stop_worker", lambda: calls.append("scheduler_stop"))
+    monkeypatch.setattr(main, "stop_update_worker", lambda: calls.append("updater_stop"))
+
+    with TestClient(app):
+        assert settings.api_token_file.is_file()
+        assert settings.workspace.is_dir()
+        assert settings.api_token_file.stat().st_mode & 0o777 == 0o600
+        assert calls == [
+            "approval_recovery",
+            "autonomy_recovery",
+            "skill_recovery",
+            "workflow_recovery",
+            "knowledge",
+            "scheduler_config",
+            "scheduler_start",
+            "updater_start",
+        ]
+
+    assert calls[-2:] == ["scheduler_stop", "updater_stop"]
