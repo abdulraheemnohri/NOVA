@@ -266,7 +266,7 @@ async def upload_attachment(conversation_id: str, file: UploadFile = File(...)):
                         piece = page_text[:remaining]
                         chunks.append(piece)
                         remaining -= len(piece)
-                extracted = "\\n\\n".join(chunks)
+                extracted = "\n\n".join(chunks)
                 if not extracted.strip():
                     extraction_note = "PDF uploaded, but no selectable text was found. Scanned PDFs need OCR, which is not enabled."
                 elif len(extracted) >= 200_000:
