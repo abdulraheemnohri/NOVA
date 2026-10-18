@@ -241,7 +241,7 @@ async def upload_attachment(conversation_id: str, file: UploadFile = File(...)):
         with target.open("xb") as stream:
             stream.write(data)
         extracted = ""
-        extraction_note = None
+        extraction_note = ("Image stored for download and preview; image pixels are not yet sent to the model." if extension in IMAGE_EXTENSIONS else None)
         if extension in TEXT_EXTENSIONS:
             try:
                 extracted = data.decode("utf-8-sig")
