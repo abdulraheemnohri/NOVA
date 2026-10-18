@@ -69,3 +69,15 @@ A feature is complete only when API, UI controls, persistence, permission checks
 - `csv_summary` reports row/column counts, missing values and conservative per-column type hints from bounded CSV input (100,000 characters, 2,000 rows, 100 columns).
 - `markdown_outline` extracts Markdown heading levels and line numbers from bounded text (100,000 characters, 500 headings).
 - Both are default-deny policy registered, audit logged, and available through the live Agent Workbench tool catalog/runner. No file, shell, or network permissions are added.
+
+
+## Dynamic runtime controls
+- Settings now expose persistent enable/disable switches for local retrieval, Hugging Face browsing, model downloads, Whisper, Piper, OCR, and ONNX runtime discovery.
+- Model-download size limits can be reduced in the UI and remain bounded by the environment-defined maximum.
+- Every settings update is validated and audit-logged; disabled operations are rejected by the backend, not just hidden in the UI.
+ 
+
+## Dynamic settings and LiteRT-LM startup controls
+- Settings UI adds persisted, audit-logged switches for local retrieval, Hugging Face browsing, model downloads, Whisper, Piper, OCR and ONNX runtime discovery, plus a bounded model download size.
+- Runtime Manager adds opt-in Linux systemd user-service controls for the operator-configured LiteRT-LM command, including active/enabled status and optional user lingering for startup before login. No shell is used to launch the configured command; the operator must validate loopback binding and release-specific flags.
+- The existing Hugging Face UI supports repository search, artifact browsing, explicit download, local SHA-256 calculation and registry; new feature switches enforce its availability at the backend.

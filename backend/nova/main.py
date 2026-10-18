@@ -30,7 +30,7 @@ from nova.diagnostics import router as diagnostics_router
 from nova.runtimes import router as runtimes_router
 from nova.scheduler import router as scheduler_router, start_worker, stop_worker, initialize_scheduler_config
 from nova.system_monitor import router as system_router
-from nova.settings_preferences import get_preferences, router as settings_preferences_router
+from nova.settings_preferences import get_preferences, get_feature_settings, router as settings_preferences_router
 from nova.security import PersistentRateLimiter
 from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router
@@ -497,7 +497,8 @@ def api_health():
 def api_chat(req: ChatRequest):
     # Retrieval is local and lexical today; returned source metadata is grounded in
     # the local index. Document text is untrusted evidence, never tool authority.
-    retrieval = search_knowledge(SearchRequest(query=req.message, limit=4))
+    features = get_feature_settings()
+    retrieval = search_knowledge(SearchRequest(query=req.message, limit=4)) if features["local_retrieval_enabled"] else {"results": [], "method": "disabled"}
     retrieved = retrieval.get("results", [])
     sources = [
         {
@@ -824,7 +825,7 @@ def get_settings():
         "rollback_enabled": True,
         "huggingface_enabled": True,
         "huggingface_cache_dir": str(settings.huggingface_cache_dir),
-        "huggingface_max_download_bytes": settings.huggingface_max_download_bytes,
+        "huggingface_max_download_bytes": get_feature_settings()["max_model_download_bytes"],
         "huggingface_token_configured": bool(settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()),
     }
 

@@ -11,6 +11,8 @@ import importlib.metadata
 import importlib.util
 import json
 import os
+import platform
+import re
 import sqlite3
 import shutil
 import subprocess
@@ -26,6 +28,7 @@ from pydantic import BaseModel, Field
 from nova.audit import append_audit
 from nova.config import settings
 from nova.litert import health as litert_health
+from nova.settings_preferences import get_feature_settings
 
 router = APIRouter(prefix="/api/runtimes", tags=["model runtimes"])
 
@@ -129,7 +132,8 @@ def runtime_inventory() -> dict[str, Any]:
     whisper_validation = _validate_whisper_model(whisper_model)
     piper_validation = _validate_piper_voice(piper_model, piper_metadata)
     litert = litert_health()
-    onnx_available = settings.onnxruntime_enabled and _module_available("onnxruntime")
+    features = get_feature_settings()
+    onnx_available = features["onnx_runtime_enabled"] and _module_available("onnxruntime")
     tflite_available = _module_available("tflite_runtime") or _module_available("ai_edge_litert")
     transformers_available = _module_available("transformers")
     runtimes = [
@@ -184,7 +188,7 @@ def runtime_inventory() -> dict[str, Any]:
             "purpose": "Specialized ONNX models: embeddings, OCR, classifiers and compatible audio models",
             "role": "specialized_model_runtime", "detected": onnx_available,
             "version": _distribution_version("onnxruntime") if onnx_available else None,
-            "configured": settings.onnxruntime_enabled,
+            "configured": features["onnx_runtime_enabled"],
             "status": "ready" if onnx_available else "not_available",
             "policy": "Inventory only until a task-specific model adapter is enabled.",
         },
@@ -502,6 +506,8 @@ def get_runtime_install_execution(request_id: str):
 @router.post("/ocr/extract")
 async def extract_image_text(file: UploadFile = File(...)):
     """Run explicitly requested OCR with a preinstalled local Tesseract binary."""
+    if not get_feature_settings()["ocr_enabled"]:
+        raise HTTPException(403, "Image OCR is disabled in Runtime Features settings.")
     filename = Path(file.filename or "image").name
     suffix = Path(filename).suffix.lower()
     allowed = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
@@ -572,6 +578,8 @@ async def extract_image_text(file: UploadFile = File(...)):
 @router.post("/piper/synthesize")
 def synthesize_with_piper(req: SynthesisRequest):
     """Synthesize speech with a preinstalled local Piper executable and voice model."""
+    if not get_feature_settings()["piper_enabled"]:
+        raise HTTPException(403, "Piper speech synthesis is disabled in Runtime Features settings.")
     if not req.text.strip():
         raise HTTPException(422, "Text to synthesize must not be blank.")
     executable = _resolve_executable(settings.piper_cli_path, ("piper",))
@@ -656,6 +664,8 @@ def _convert_audio_to_wav(source_path: Path, target_path: Path, timeout: int) ->
 @router.post("/whisper/transcribe")
 async def transcribe_with_whisper(file: UploadFile = File(...)):
     """Transcribe common audio formats using local FFmpeg and whisper.cpp."""
+    if not get_feature_settings()["whisper_enabled"]:
+        raise HTTPException(403, "Whisper transcription is disabled in Runtime Features settings.")
     filename = Path(file.filename or "audio.wav").name
     suffix = Path(filename).suffix.lower()
     allowed_suffixes = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm", ".aac", ".mp4"}
@@ -746,3 +756,132 @@ async def transcribe_with_whisper(file: UploadFile = File(...)):
                 path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+class LiteRTAutostartRequest(BaseModel):
+    enabled: bool
+    enable_linger: bool = False
+
+
+def _litert_service_unit_path() -> Path:
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))).expanduser()
+    unit_dir = config_home / "systemd" / "user"
+    if unit_dir.is_symlink():
+        raise HTTPException(403, "systemd user unit directory must not be a symbolic link.")
+    unit_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return unit_dir / "nova-litert-lm.service"
+
+
+def _litert_service_status() -> dict[str, Any]:
+    supported = platform.system() == "Linux" and shutil.which("systemctl") is not None
+    enabled = active = False
+    if supported:
+        enabled = subprocess.run(
+            ["systemctl", "--user", "is-enabled", "nova-litert-lm.service"],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).returncode == 0
+        active = subprocess.run(
+            ["systemctl", "--user", "is-active", "nova-litert-lm.service"],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).returncode == 0
+    env_file = Path(__file__).resolve().parents[2] / ".env"
+    command_in_env_file = False
+    try:
+        command_in_env_file = any(
+            re.match(r"^\s*NOVA_LITERT_LM_COMMAND\s*=", line) and not line.lstrip().startswith("#")
+            for line in env_file.read_text(encoding="utf-8").splitlines()
+        )
+    except OSError:
+        pass
+    return {
+        "supported": supported,
+        "configured": bool(settings.litert_lm_command.strip()) and command_in_env_file,
+        "enabled": enabled,
+        "active": active,
+        "service": "nova-litert-lm.service",
+        "platform": platform.system(),
+        "note": "The exact server command must be operator-configured in the local .env. The service launcher uses argv without a shell. Confirm the command binds only to loopback and matches NOVA_LITERT_BASE_URL.",
+    }
+
+
+@router.get("/litert/autostart")
+def get_litert_autostart():
+    return _litert_service_status()
+
+
+@router.put("/litert/autostart")
+def set_litert_autostart(req: LiteRTAutostartRequest):
+    """Install/enable or disable a user-level systemd unit for the operator-configured LiteRT-LM command."""
+    if platform.system() != "Linux" or shutil.which("systemctl") is None:
+        raise HTTPException(501, "LiteRT-LM automatic startup controls require Linux with systemd.")
+    if not req.enabled:
+        subprocess.run(
+            ["systemctl", "--user", "disable", "--now", "nova-litert-lm.service"],
+            capture_output=True, text=True, timeout=20, check=False,
+        )
+        unit_path = _litert_service_unit_path()
+        try:
+            unit_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise HTTPException(500, "Could not remove the LiteRT-LM user service unit.") from exc
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, text=True, timeout=10, check=False)
+        append_audit(settings.audit_path, "runtime.litert.autostart.disabled", {"service": "nova-litert-lm.service"})
+        return _litert_service_status()
+
+    status = _litert_service_status()
+    if not status["configured"]:
+        raise HTTPException(
+            422,
+            "Configure NOVA_LITERT_LM_COMMAND in the local .env first. Use the exact command documented for your installed LiteRT-LM version; do not use a shell wrapper.",
+        )
+    root = Path(__file__).resolve().parents[2]
+    python = root / ".venv" / "bin" / "python"
+    launcher = root / "scripts" / "run_litert_lm.py"
+    if not python.is_file() or not launcher.is_file():
+        raise HTTPException(409, "The project virtual environment or LiteRT-LM launcher is missing.")
+    if req.enable_linger:
+        user = os.environ.get("USER", "").strip()
+        if not user or not shutil.which("loginctl"):
+            raise HTTPException(501, "User lingering requires loginctl and a known current user.")
+        linger = subprocess.run(
+            ["loginctl", "enable-linger", user], capture_output=True, text=True, timeout=15, check=False,
+        )
+        if linger.returncode != 0:
+            raise HTTPException(409, "Could not enable user lingering. The unit can still start after login; inspect local loginctl permissions.")
+    unit_path = _litert_service_unit_path()
+    unit_text = f"""[Unit]
+Description=NOVA LiteRT-LM local inference runtime
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory={root}
+ExecStart={python} {launcher}
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target
+"""
+    try:
+        unit_path.write_text(unit_text, encoding="utf-8")
+        os.chmod(unit_path, 0o600)
+    except OSError as exc:
+        raise HTTPException(500, "Could not write the LiteRT-LM user service unit.") from exc
+    reload_result = subprocess.run(
+        ["systemctl", "--user", "daemon-reload"], capture_output=True, text=True, timeout=15, check=False,
+    )
+    if reload_result.returncode != 0:
+        raise HTTPException(409, "systemd could not reload user units; inspect local systemd status.")
+    start_result = subprocess.run(
+        ["systemctl", "--user", "enable", "--now", "nova-litert-lm.service"],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    if start_result.returncode != 0:
+        append_audit(settings.audit_path, "runtime.litert.autostart.failed", {"service": "nova-litert-lm.service", "returncode": start_result.returncode})
+        raise HTTPException(409, "systemd could not enable/start LiteRT-LM. Inspect systemctl --user status nova-litert-lm.service.")
+    append_audit(settings.audit_path, "runtime.litert.autostart.enabled", {
+        "service": "nova-litert-lm.service", "enable_linger": req.enable_linger,
+    })
+    return _litert_service_status()

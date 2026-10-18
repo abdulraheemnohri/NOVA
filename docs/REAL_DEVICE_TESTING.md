@@ -46,13 +46,14 @@ Important rules:
 
 ## 4. Install and start LiteRT-LM separately
 
-NOVA does not install or launch LiteRT-LM automatically because runtime commands, supported artifact formats and accelerator compatibility vary by LiteRT-LM release and target device.
+NOVA does not install LiteRT-LM or guess its server flags because supported commands and accelerator compatibility vary by release and device. The Runtime Manager can create an opt-in Linux systemd user service after you configure the exact server command locally.
 
 1. Install a LiteRT-LM release compatible with your OS, CPU architecture and accelerator from its trusted upstream distribution.
 2. Check that release's own documentation for the exact server command and supported model format. Do not copy a CLI command from another version without checking its help output.
 3. Obtain a model explicitly documented as compatible with that runtime and device.
 4. Start the runtime's OpenAI-compatible server on loopback port 9379, or set `NOVA_LITERT_BASE_URL` to the actual local loopback endpoint.
 5. Confirm the endpoint responds and exposes the intended model ID before selecting it in NOVA.
+6. For optional automatic startup, add the exact release-specific command as `NOVA_LITERT_LM_COMMAND` in `.env`, with a loopback bind and the matching port. Open **Runtimes → LiteRT-LM start on reboot**, review the detected configuration, and enable the user service. Select the “Start after reboot before login” option only if you want user lingering and your OS permits it. NOVA runs the configured argv without a shell; the command itself must bind only to loopback. The service does not download model weights.
 
 A model appearing in a model list or passing a SHA-256 calculation does not establish that it is compatible, trustworthy, or able to run within device memory. Check the publisher, license, source, expected RAM/storage, context length, quantization, supported architecture and accelerator requirements.
 
