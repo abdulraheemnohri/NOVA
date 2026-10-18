@@ -392,78 +392,34 @@ def test_runtime_install_request_can_be_rejected(tmp_path, monkeypatch):
         assert rejected.json()["decision_note"] == "Not needed"
 
 
-def test_runtime_install_executor_is_disabled_by_default(tmp_path, monkeypatch):
+def test_runtime_install_execution_is_never_supported_even_when_env_enabled(tmp_path, monkeypatch):
     from nova import runtimes
 
-    monkeypatch.delenv("NOVA_RUNTIME_INSTALL_EXECUTION_ENABLED", raising=False)
-    monkeypatch.setattr(runtimes.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not execute")))
+    monkeypatch.setenv("NOVA_RUNTIME_INSTALL_EXECUTION_ENABLED", "true")
+    monkeypatch.setattr(
+        runtimes.subprocess,
+        "run",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("NOVA must never run package managers")),
+    )
     with _client(tmp_path, monkeypatch) as (client, headers):
-        created = client.post("/api/runtimes/operations/requests", headers=headers,
-                              json={"runtime_id": "ffmpeg-audio"})
+        created = client.post(
+            "/api/runtimes/operations/requests",
+            headers=headers,
+            json={"runtime_id": "ffmpeg-audio"},
+        )
         request_id = created.json()["request_id"]
-        client.post(f"/api/runtimes/operations/requests/{request_id}/decision",
-                    headers=headers, json={"decision": "approve"})
+        client.post(
+            f"/api/runtimes/operations/requests/{request_id}/decision",
+            headers=headers,
+            json={"decision": "approve"},
+        )
         response = client.post(
             f"/api/runtimes/operations/requests/{request_id}/execute",
             headers=headers,
             json={"confirm_request_id": request_id, "confirm_install": True},
         )
         assert response.status_code == 403
-        assert "disabled" in response.json()["detail"].lower()
-
-
-def test_runtime_install_executor_uses_allowlisted_argv_and_records_result(tmp_path, monkeypatch):
-    from nova import runtimes
-
-    monkeypatch.setenv("NOVA_RUNTIME_INSTALL_EXECUTION_ENABLED", "true")
-    monkeypatch.setattr(runtimes.os, "geteuid", lambda: 0)
-    monkeypatch.setattr(runtimes.shutil, "which", lambda name: "/usr/bin/apt-get" if name == "apt-get" else None)
-    observed = {}
-
-    def fake_run(argv, **kwargs):
-        observed["argv"] = argv
-        observed["kwargs"] = kwargs
-        return subprocess.CompletedProcess(argv, 0, stdout="installed", stderr="")
-
-    monkeypatch.setattr(runtimes.subprocess, "run", fake_run)
-    with _client(tmp_path, monkeypatch) as (client, headers):
-        created = client.post("/api/runtimes/operations/requests", headers=headers,
-                              json={"runtime_id": "ffmpeg-audio"})
-        request_id = created.json()["request_id"]
-        approved = client.post(f"/api/runtimes/operations/requests/{request_id}/decision",
-                               headers=headers, json={"decision": "approve"})
-        assert approved.status_code == 200
-        mismatch = client.post(
-            f"/api/runtimes/operations/requests/{request_id}/execute",
-            headers=headers,
-            json={"confirm_request_id": "different-id", "confirm_install": True},
-        )
-        assert mismatch.status_code == 400
-        response = client.post(
-            f"/api/runtimes/operations/requests/{request_id}/execute",
-            headers=headers,
-            json={"confirm_request_id": request_id, "confirm_install": True},
-        )
-        assert response.status_code == 200, response.text
-        body = response.json()
-        assert body["status"] == "succeeded"
-        assert body["executed"] is True
-        assert body["exit_code"] == 0
-        assert body["recovery_guidance"]
-        assert observed["argv"] == ["/usr/bin/apt-get", "install", "--no-install-recommends", "-y", "--", "ffmpeg"]
-        assert observed["kwargs"]["shell"] is False
-        assert observed["kwargs"]["timeout"] == 600
-        assert observed["kwargs"]["env"]["DEBIAN_FRONTEND"] == "noninteractive"
-        duplicate = client.post(
-            f"/api/runtimes/operations/requests/{request_id}/execute",
-            headers=headers,
-            json={"confirm_request_id": request_id, "confirm_install": True},
-        )
-        assert duplicate.status_code == 409
-        log = client.get(f"/api/runtimes/operations/requests/{request_id}/execution", headers=headers)
-        assert log.status_code == 200
-        assert log.json()["status"] == "succeeded"
-
+        assert "never runs package managers" in response.json()["detail"]
 
 def test_runtime_install_executor_requires_root_and_approval(tmp_path, monkeypatch):
     from nova import runtimes
