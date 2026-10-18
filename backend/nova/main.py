@@ -29,7 +29,7 @@ from nova.runtimes import router as runtimes_router
 from nova.scheduler import router as scheduler_router, start_worker, stop_worker, initialize_scheduler_config
 from nova.system_monitor import router as system_router
 from nova.settings_preferences import router as settings_preferences_router
-from nova.security import LocalRateLimiter
+from nova.security import PersistentRateLimiter
 from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router
 from nova.self_improvement import router as self_improvement_router
@@ -39,7 +39,7 @@ from nova.updates import router as updates_router, start_worker as start_update_
 from nova.whatsapp import router as whatsapp_router
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
-app.state.rate_limiter = LocalRateLimiter()
+app.state.rate_limiter = PersistentRateLimiter()
 
 
 @app.middleware("http")
