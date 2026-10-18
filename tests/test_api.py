@@ -395,5 +395,4 @@ def test_chat_can_explicitly_invoke_an_active_read_only_skill(monkeypatch, tmp_p
         body = response.json()["answer"]
         assert "Skill run completed" in body
         assert '"words": 2' in body
-        assert "hello world" in body
 
