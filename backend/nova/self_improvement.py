@@ -75,6 +75,15 @@ class SkillCreate(BaseModel):
     tags: list[str] = Field(default_factory=list, max_length=12)
 
 
+class SkillUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1)
+    name: str = Field(min_length=3, max_length=80)
+    description: str = Field(min_length=3, max_length=500)
+    instructions: str = Field(min_length=10, max_length=12000)
+    tags: list[str] = Field(default_factory=list, max_length=12)
+
+
 class ToolProposalCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=3, max_length=60)
@@ -133,6 +142,50 @@ def create_skill(req: SkillCreate):
         con.close()
     append_audit(settings.audit_path, "self.skill.created", {"skill_id": skill_id, "name": name, "status": "draft"})
     return row_skill(row)
+
+
+@router.put("/skills/{skill_id}")
+def update_skill(skill_id: str, req: SkillUpdate):
+    """Update a draft/disabled skill using optimistic version checking."""
+    name = req.name.strip()
+    description = req.description.strip()
+    instructions = req.instructions.strip()
+    if not slug(name) or not instructions:
+        raise HTTPException(422, "Skill name and instructions must contain usable text.")
+    tags = []
+    for tag in req.tags:
+        clean = tag.strip().lower()
+        if not clean or len(clean) > 40 or any(ord(ch) < 32 for ch in clean):
+            raise HTTPException(422, "Tags must be 1–40 printable characters.")
+        if clean not in tags:
+            tags.append(clean)
+    con = db()
+    try:
+        row = con.execute("SELECT * FROM self_skills WHERE id=?", (skill_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Skill not found.")
+        if row["status"] == "active":
+            raise HTTPException(409, "Disable the skill before editing it.")
+        if row["status"] not in ("draft", "disabled"):
+            raise HTTPException(409, "Only draft or disabled skills can be edited.")
+        if int(row["version"]) != req.expected_version:
+            raise HTTPException(409, "Skill version changed; refresh and review the latest version before saving.")
+        timestamp = now()
+        cur = con.execute(
+            """UPDATE self_skills SET name=?,description=?,instructions=?,tags_json=?,
+            version=version+1,updated_at=? WHERE id=? AND version=? AND status IN ('draft','disabled')""",
+            (name, description, instructions, json.dumps(tags), timestamp, skill_id, req.expected_version),
+        )
+        if cur.rowcount != 1:
+            raise HTTPException(409, "Skill changed while saving; refresh and retry.")
+        con.commit()
+        updated = con.execute("SELECT * FROM self_skills WHERE id=?", (skill_id,)).fetchone()
+    finally:
+        con.close()
+    append_audit(settings.audit_path, "self.skill.updated", {
+        "skill_id": skill_id, "version": updated["version"], "status": updated["status"]
+    })
+    return row_skill(updated)
 
 
 @router.post("/skills/{skill_id}/activate")
