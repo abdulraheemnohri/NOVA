@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 from nova.config import settings
 from nova.self_improvement import (
-    SkillCreate, ToolProposalCreate, activate_skill, disable_skill, create_skill,
+    SkillCreate, SkillUpdate, ToolProposalCreate, activate_skill, disable_skill, create_skill, update_skill,
     create_tool_proposal, list_skills, list_tool_proposals, review_tool_proposal,
 )
 
@@ -334,4 +334,50 @@ def test_disabling_non_active_skill_is_rejected(isolated_store):
     ))
     with pytest.raises(HTTPException) as error:
         disable_skill(created["id"])
+    assert error.value.status_code == 409
+
+
+def test_draft_skill_can_be_edited_with_version_increment(isolated_store):
+    created = create_skill(SkillCreate(
+        name="Draft Notes", description="Original description",
+        instructions="Original instructions with enough detail for validation.",
+        tags=["draft"],
+    ))
+    updated = update_skill(created["id"], SkillUpdate(
+        expected_version=created["version"], name="Improved Notes",
+        description="Updated description", instructions="Updated instructions with enough detail for validation.",
+        tags=["reviewed", "notes", "reviewed"],
+    ))
+    assert updated["name"] == "Improved Notes"
+    assert updated["description"] == "Updated description"
+    assert updated["instructions"].startswith("Updated instructions")
+    assert updated["tags"] == ["reviewed", "notes"]
+    assert updated["status"] == "draft"
+    assert updated["version"] == created["version"] + 1
+
+
+def test_active_skill_must_be_disabled_before_editing(isolated_store):
+    created = create_skill(SkillCreate(
+        name="Active Notes", description="Active skills need a safe edit transition",
+        instructions="Disable before editing to avoid silently changing an active skill.",
+    ))
+    active = activate_skill(created["id"])
+    with pytest.raises(HTTPException) as error:
+        update_skill(created["id"], SkillUpdate(
+            expected_version=active["version"], name="Changed Notes",
+            description="Try to edit active skill", instructions="This edit must be rejected while active.",
+        ))
+    assert error.value.status_code == 409
+
+
+def test_stale_skill_edit_is_rejected(isolated_store):
+    created = create_skill(SkillCreate(
+        name="Version Notes", description="Optimistic version conflict test",
+        instructions="Reject updates made against an outdated skill revision.",
+    ))
+    with pytest.raises(HTTPException) as error:
+        update_skill(created["id"], SkillUpdate(
+            expected_version=created["version"] + 1, name="Stale Notes",
+            description="Stale update", instructions="This stale update must not overwrite current content.",
+        ))
     assert error.value.status_code == 409
