@@ -23,3 +23,7 @@ The agent prompt keeps a fixed safety contract after operator profile and skill 
 ## Local inference response hardening
 
 The LiteRT-LM adapter only accepts HTTP endpoints whose host is a literal loopback IP or `localhost`. Endpoint URLs containing embedded credentials, query strings or fragments are rejected. Redirects from the configured local endpoint are not followed, preventing a local service from redirecting the adapter to an external host. `/models` and chat responses are read with strict byte limits; malformed or oversized responses fail closed. This is defense in depth, not a substitute for keeping the inference server bound to loopback and running it as an unprivileged user.
+
+## WhatsApp webhook input limits
+
+The inbound WhatsApp webhook verifies the `X-Hub-Signature-256` HMAC against the raw request bytes and rejects request bodies larger than 1 MB with HTTP 413 before JSON parsing. Keep the webhook reachable only when integrating with the WhatsApp Cloud API; signature validation and sender allowlisting are both required. The payload limit is an application-level cap and should be complemented by reverse-proxy/server request limits in public deployments.
