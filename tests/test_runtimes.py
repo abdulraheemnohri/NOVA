@@ -421,27 +421,45 @@ def test_runtime_install_execution_is_never_supported_even_when_env_enabled(tmp_
         assert response.status_code == 403
         assert "never runs package managers" in response.json()["detail"]
 
-def test_runtime_install_executor_requires_root_and_approval(tmp_path, monkeypatch):
+def test_runtime_install_executor_is_blocked_regardless_of_root_or_approval(tmp_path, monkeypatch):
     from nova import runtimes
 
     monkeypatch.setenv("NOVA_RUNTIME_INSTALL_EXECUTION_ENABLED", "true")
     monkeypatch.setattr(runtimes.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        runtimes.subprocess,
+        "run",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("NOVA must never run package managers")),
+    )
     with _client(tmp_path, monkeypatch) as (client, headers):
-        created = client.post("/api/runtimes/operations/requests", headers=headers,
-                              json={"runtime_id": "ffmpeg-audio"})
-        request_id = created.json()["request_id"]
-        response = client.post(
-            f"/api/runtimes/operations/requests/{request_id}/execute",
+        created = client.post(
+            "/api/runtimes/operations/requests",
             headers=headers,
-            json={"confirm_request_id": request_id, "confirm_install": True},
+            json={"runtime_id": "ffmpeg-audio"},
         )
-        assert response.status_code == 409
-        client.post(f"/api/runtimes/operations/requests/{request_id}/decision",
-                    headers=headers, json={"decision": "approve"})
-        monkeypatch.setattr(runtimes.os, "geteuid", lambda: 1000)
+        assert created.status_code == 201
+        request_id = created.json()["request_id"]
+
+        # Execution remains blocked before approval, even for a root backend.
         response = client.post(
             f"/api/runtimes/operations/requests/{request_id}/execute",
             headers=headers,
             json={"confirm_request_id": request_id, "confirm_install": True},
         )
         assert response.status_code == 403
+
+        approved = client.post(
+            f"/api/runtimes/operations/requests/{request_id}/decision",
+            headers=headers,
+            json={"decision": "approve"},
+        )
+        assert approved.status_code == 200
+
+        # Approval is audit metadata only; it never authorizes execution.
+        response = client.post(
+            f"/api/runtimes/operations/requests/{request_id}/execute",
+            headers=headers,
+            json={"confirm_request_id": request_id, "confirm_install": True},
+        )
+        assert response.status_code == 403
+        assert "never runs package managers" in response.json()["detail"]
