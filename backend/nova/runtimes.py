@@ -262,6 +262,7 @@ def runtime_preflight() -> dict[str, Any]:
         checks.append({
             "runtime_id": runtime["id"], "name": runtime["name"],
             "status": status, "severity": severity, "action": action,
+            "model_validation": runtime.get("model_validation"),
         })
     primary_ready = next((item["status"] == "ready" for item in checks if item["runtime_id"] == "litert-lm"), False)
     return {
