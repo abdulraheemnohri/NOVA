@@ -137,7 +137,7 @@ class PersistentRateLimiter:
             con = self._db()
             try:
                 con.execute("BEGIN IMMEDIATE")
-                con.execute("DELETE FROM api_rate_events WHERE occurred_at<=?", (now - max(60, self.failed_auth_window_seconds)))
+                con.execute("DELETE FROM api_rate_events WHERE occurred_at<=?", (now - max(60, self.failed_auth_window_seconds),))
                 row = con.execute("SELECT blocked_until FROM api_rate_blocks WHERE client_key=? AND category='request'",
                                   (client,)).fetchone()
                 count = con.execute("SELECT COUNT(*) FROM api_rate_events WHERE client_key=? AND category='request' AND occurred_at>?",
