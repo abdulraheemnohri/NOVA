@@ -497,7 +497,8 @@ def api_health():
 def api_chat(req: ChatRequest):
     # Retrieval is local and lexical today; returned source metadata is grounded in
     # the local index. Document text is untrusted evidence, never tool authority.
-    features = get_feature_settings()\n    retrieval = search_knowledge(SearchRequest(query=req.message, limit=4)) if features["local_retrieval_enabled"] else {"results": [], "method": "disabled"}
+    features = get_feature_settings()
+    retrieval = search_knowledge(SearchRequest(query=req.message, limit=4)) if features["local_retrieval_enabled"] else {"results": [], "method": "disabled"}
     retrieved = retrieval.get("results", [])
     sources = [
         {
