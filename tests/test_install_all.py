@@ -32,7 +32,7 @@ def test_windows_runtime_setup_installs_tools_without_starting_them() -> None:
     with patch("scripts.install_all.shutil.which", return_value="C:/Windows/System32/winget.exe"):
         commands = runtime_install_commands("Windows")
 
-    assert len(commands) == 3
+    assert len(commands) == 5
     assert all(command[0] == "winget" and command[1] == "install" for command in commands)
     assert any("OpenJS.NodeJS.LTS" in command for command in commands)
     assert any("Gyan.FFmpeg" in command for command in commands)
