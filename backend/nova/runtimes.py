@@ -5,6 +5,7 @@ explicitly scoped to specialized tasks and are never silently selected as fallba
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -492,7 +493,8 @@ async def extract_image_text(file: UploadFile = File(...)):
             image_path = Path(temp_dir) / "input.png"
             normalized.save(image_path, format="PNG", optimize=False)
             try:
-                result = subprocess.run(
+                result = await asyncio.to_thread(
+                    subprocess.run,
                     [executable, str(image_path), "stdout", "--psm", "6"],
                     capture_output=True, text=True, timeout=settings.ocr_timeout_seconds,
                     check=False, shell=False,
@@ -647,7 +649,7 @@ async def transcribe_with_whisper(file: UploadFile = File(...)):
         with input_path.open("xb") as stream:
             stream.write(audio)
         if suffix != ".wav":
-            _convert_audio_to_wav(input_path, normalized_path, timeout)
+            await asyncio.to_thread(_convert_audio_to_wav, input_path, normalized_path, timeout)
         with normalized_path.open("rb") as stream:
             wav_header = stream.read(12)
         if len(wav_header) < 12 or wav_header[:4] != b"RIFF" or wav_header[8:12] != b"WAVE":
@@ -660,7 +662,8 @@ async def transcribe_with_whisper(file: UploadFile = File(...)):
             "-otxt", "-of", str(output_prefix), "-nt",
         ]
         try:
-            completed = subprocess.run(
+            completed = await asyncio.to_thread(
+                subprocess.run,
                 command, shell=False, capture_output=True, text=True,
                 timeout=timeout, check=False, cwd=str(workspace),
             )
