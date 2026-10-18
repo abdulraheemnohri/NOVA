@@ -91,3 +91,12 @@ def test_persistent_limiter_rejects_invalid_limits(tmp_path):
 
     with pytest.raises(ValueError):
         PersistentRateLimiter(tmp_path / "nova.sqlite3", requests_per_minute=0)
+
+def test_persistent_limiter_defaults_to_configured_database(monkeypatch, tmp_path):
+    from nova.config import settings
+
+    database = tmp_path / "configured.sqlite3"
+    monkeypatch.setattr(settings, "database_path", database)
+    limiter = PersistentRateLimiter(requests_per_minute=1)
+    assert limiter.allow("client", now=100)
+    assert database.is_file()
