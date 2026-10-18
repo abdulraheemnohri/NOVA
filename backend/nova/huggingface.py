@@ -209,14 +209,19 @@ def download_huggingface_artifact(req: DownloadRequest):
         raise HTTPException(403, "Resolved artifact path escaped the configured cache directory.")
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists() and destination.is_file():
+        cached_size = destination.stat().st_size
+        if cached_size > limit:
+            raise HTTPException(413, "Cached artifact exceeds the current configured download limit.")
+        if isinstance(size, int) and cached_size != size:
+            raise HTTPException(409, "Cached artifact size no longer matches Hugging Face metadata; inspect or remove the cached file.")
         digest = hashlib.sha256()
         with destination.open("rb") as stream:
             for block in iter(lambda: stream.read(_CHUNK), b""):
                 digest.update(block)
         digest_hex = digest.hexdigest()
-        append_audit(settings.audit_path, "huggingface_artifact_cache_hit", {"repo_id": repo, "revision": revision, "filename": filename, "sha256": digest_hex, "size_bytes": destination.stat().st_size})
+        append_audit(settings.audit_path, "huggingface_artifact_cache_hit", {"repo_id": repo, "revision": revision, "filename": filename, "sha256": digest_hex, "size_bytes": cached_size})
         return {"downloaded": True, "repo_id": repo, "revision": revision, "filename": filename,
-                "file_path": str(destination), "size_bytes": destination.stat().st_size,
+                "file_path": str(destination), "size_bytes": cached_size,
                 "sha256": digest_hex, "cached": True, "format": extension[1:],
                 "inference_enabled": extension == ".litertlm"}
 
