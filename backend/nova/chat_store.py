@@ -467,7 +467,7 @@ async def import_chat_backup(file: UploadFile = File(...)):
         con.rollback()
         for path in written_paths:
             path.unlink(missing_ok=True)
-        raise HTTPException(422, f"Could not restore this backup; no conversation was imported ({type(exc).__name__}).") from exc
+        raise HTTPException(422, f"Could not restore this backup; no conversation was imported ({type(exc).__name__}: {exc}).") from exc
     finally:
         con.close()
 
