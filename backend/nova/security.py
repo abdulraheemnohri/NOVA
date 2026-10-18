@@ -178,3 +178,131 @@ class PersistentRateLimiter:
                 raise
             finally:
                 con.close()
+
+
+
+class PersistentRateLimiter:
+    """SQLite-backed sliding-window limiter shared by processes using one database.
+
+    Uses wall-clock timestamps because monotonic clocks are not stable across
+    process restarts. Database writes are serialized with BEGIN IMMEDIATE so
+    simultaneous workers cannot all pass the same request budget.
+    """
+
+    def __init__(
+        self,
+        database_path,
+        *,
+        requests_per_minute: int = 120,
+        failed_auth_attempts: int = 10,
+        failed_auth_window_seconds: int = 300,
+        block_seconds: int = 60,
+    ) -> None:
+        if min(requests_per_minute, failed_auth_attempts, failed_auth_window_seconds, block_seconds) < 1:
+            raise ValueError("Rate-limiter limits must be positive.")
+        self._database_path = database_path
+        self.requests_per_minute = requests_per_minute
+        self.failed_auth_attempts = failed_auth_attempts
+        self.failed_auth_window_seconds = failed_auth_window_seconds
+        self.block_seconds = block_seconds
+
+    def _connect(self):
+        import sqlite3
+
+        path = self._database_path() if callable(self._database_path) else self._database_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(path, timeout=10, isolation_level=None)
+        con.execute("PRAGMA busy_timeout=10000")
+        con.execute("""CREATE TABLE IF NOT EXISTS nova_rate_events(
+            kind TEXT NOT NULL, bucket_key TEXT NOT NULL, event_at REAL NOT NULL)""")
+        con.execute("""CREATE INDEX IF NOT EXISTS idx_nova_rate_events_lookup
+            ON nova_rate_events(kind, bucket_key, event_at)""")
+        con.execute("""CREATE TABLE IF NOT EXISTS nova_rate_blocks(
+            kind TEXT NOT NULL, bucket_key TEXT NOT NULL, blocked_until REAL NOT NULL,
+            PRIMARY KEY(kind, bucket_key))""")
+        return con
+
+    def _blocked(self, con, kind: str, key: str, now: float) -> bool:
+        row = con.execute(
+            "SELECT blocked_until FROM nova_rate_blocks WHERE kind=? AND bucket_key=?",
+            (kind, key),
+        ).fetchone()
+        return bool(row and row[0] > now)
+
+    def auth_blocked(self, key: str, now: float | None = None) -> bool:
+        import time
+        now = time.time() if now is None else now
+        con = self._connect()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute("DELETE FROM nova_rate_events WHERE kind='auth' AND event_at<=?",
+                        (now - self.failed_auth_window_seconds,))
+            blocked = self._blocked(con, "auth", key, now)
+            if not blocked:
+                con.execute("DELETE FROM nova_rate_blocks WHERE kind='auth' AND bucket_key=?",
+                            (key,))
+            con.commit()
+            return blocked
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    def allow(self, key: str, now: float | None = None) -> bool:
+        import time
+        now = time.time() if now is None else now
+        con = self._connect()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            con.execute("DELETE FROM nova_rate_events WHERE kind='request' AND event_at<=?",
+                        (now - 60,))
+            count = con.execute(
+                "SELECT COUNT(*) FROM nova_rate_events WHERE kind='request' AND bucket_key=? AND event_at>?",
+                (key, now - 60),
+            ).fetchone()[0]
+            blocked = self._blocked(con, "request", key, now)
+            if blocked or count >= self.requests_per_minute:
+                con.execute("""INSERT INTO nova_rate_blocks(kind,bucket_key,blocked_until)
+                    VALUES('request',?,?) ON CONFLICT(kind,bucket_key) DO UPDATE SET
+                    blocked_until=MAX(blocked_until,excluded.blocked_until)""",
+                    (key, now + self.block_seconds))
+                con.commit()
+                return False
+            con.execute("INSERT INTO nova_rate_events(kind,bucket_key,event_at) VALUES('request',?,?)",
+                        (key, now))
+            con.commit()
+            return True
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
+
+    def record_auth_failure(self, key: str, now: float | None = None) -> None:
+        import time
+        now = time.time() if now is None else now
+        con = self._connect()
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            cutoff = now - self.failed_auth_window_seconds
+            con.execute("DELETE FROM nova_rate_events WHERE kind='auth' AND event_at<=?", (cutoff,))
+            con.execute("INSERT INTO nova_rate_events(kind,bucket_key,event_at) VALUES('auth',?,?)",
+                        (key, now))
+            count = con.execute(
+                "SELECT COUNT(*) FROM nova_rate_events WHERE kind='auth' AND bucket_key=? AND event_at>?",
+                (key, cutoff),
+            ).fetchone()[0]
+            if count >= self.failed_auth_attempts:
+                con.execute("""INSERT INTO nova_rate_blocks(kind,bucket_key,blocked_until)
+                    VALUES('auth',?,?) ON CONFLICT(kind,bucket_key) DO UPDATE SET
+                    blocked_until=MAX(blocked_until,excluded.blocked_until)""",
+                    (key, now + self.block_seconds))
+            # Bound stale state so client keys cannot grow the database indefinitely.
+            con.execute("DELETE FROM nova_rate_blocks WHERE blocked_until<=?", (now,))
+            con.commit()
+        except Exception:
+            con.rollback()
+            raise
+        finally:
+            con.close()
