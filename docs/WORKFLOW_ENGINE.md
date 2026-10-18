@@ -6,9 +6,10 @@ The persisted local workflow engine uses `/api/workflows`:
 - `POST /api/workflows/{workflow_id}/run`: run a definition after whole-plan preflight.
 - `GET /api/workflows/runs?limit=20`: inspect recent runs.
 - `GET /api/workflows/runs/{run_id}`: inspect one run and its per-step history.
+- `POST /api/workflows/runs/{run_id}/cancel`: request cancellation of a currently running workflow.
 
 Each step contains `tool`, strict `input`, and `when`: `always`, `on_success`, or `on_failure`. Conditions are checked against the most recent executed step; skipped steps do not change that outcome. Failures are recorded and may trigger a later failure branch, but the overall status remains `completed_with_errors` so recovery does not erase the original failure.
 
 Only the bounded calculator and local knowledge-search primitives are allowed. Shell, network access, writes, and arbitrary generated code are unavailable. Definitions are revalidated before each run. Definitions, per-step checkpoints, run history, and audit events are stored locally.
 
-Runs execute synchronously in the API process. Checkpoints are written after each step, but the engine does not claim distributed-worker behavior or exactly-once execution if the process dies during a primitive call.
+Runs execute synchronously in the API process. Cancellation is persisted and checked between primitive calls; an already-running primitive is allowed to finish, and unstarted steps are not run. Checkpoints are written after each step, but the engine does not claim distributed-worker behavior or exactly-once execution if the process dies during a primitive call.
