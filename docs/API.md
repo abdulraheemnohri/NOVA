@@ -148,3 +148,12 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - `GET /diagnostics/authority`: lists the fixed version/help commands available on this host.
 - `POST /diagnostics/execute` with `{"command_id":"python-version","confirm_execution":true}`: executes one fixed read-only command, without a shell or user-controlled arguments. Output is capped, execution times out after eight seconds, and status/output hash are audit logged.
 - The allowlist is limited to Python, Git, Node.js, npm, CMake, FFmpeg version checks, and LiteRT-LM CLI help. Arbitrary terminal commands, scripts, pipes, redirects, and package installation are not exposed.
+
+
+## Persistent chat
+
+- `GET /chat/conversations`: list non-archived conversations; `?archived=true` lists archived conversations. Optional `q` filters conversation titles.
+- `POST /chat/conversations`: create a conversation.
+- `GET /chat/conversations/{conversation_id}/messages` and `POST /chat/conversations/{conversation_id}/messages`: read/save message history with conversation-scoped attachment references.
+- `GET /chat/conversations/{conversation_id}/export?format=json` or `format=markdown`: download a portable conversation export. JSON includes a schema version, conversation, messages and attachment metadata. Markdown is human-readable and includes extracted text when available. Neither format embeds binary attachment bytes; original uploads remain available through the authenticated attachment download endpoint.
+- Export format is restricted to `json` and `markdown`; unknown formats return HTTP 422 and unknown conversation IDs return HTTP 404.
