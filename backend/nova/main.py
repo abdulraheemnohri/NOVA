@@ -282,6 +282,56 @@ def _read_relative_file(relative_path: str, *, allow_snapshot: bool = False) -> 
 
 
 
+
+def _unlink_relative_file(relative_path: str) -> bool:
+    """Unlink a workspace-relative file without following swapped parent symlinks.
+
+    Returns False when the target or one of its parent directories is absent.
+    POSIX keeps each parent directory pinned by file descriptor until unlink
+    completes, so replacing a checked directory with a symlink cannot redirect
+    deletion outside the workspace.
+    """
+    relative = Path(relative_path)
+    if relative.is_absolute() or not relative.parts or any(
+        part in {"", ".", ".."} for part in relative.parts
+    ):
+        raise OSError("Invalid workspace-relative unlink path")
+    if relative.parts[0] == ".nova-snapshots":
+        raise OSError("Snapshot storage is reserved")
+
+    root = settings.workspace.resolve()
+    if os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or os.open not in os.supports_dir_fd:
+        target = _safe_path(relative_path)
+        try:
+            target.unlink()
+            return True
+        except FileNotFoundError:
+            return False
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    root_fd = os.open(root, directory_flags)
+    opened_fds = []
+    parent_fd = root_fd
+    try:
+        for part in relative.parts[:-1]:
+            try:
+                next_fd = os.open(part, directory_flags, dir_fd=parent_fd)
+            except FileNotFoundError:
+                return False
+            opened_fds.append(next_fd)
+            parent_fd = next_fd
+        try:
+            os.unlink(relative.parts[-1], dir_fd=parent_fd)
+        except FileNotFoundError:
+            return False
+        os.fsync(parent_fd)
+        return True
+    finally:
+        for fd in reversed(opened_fds):
+            os.close(fd)
+        os.close(root_fd)
+
+
 def _atomic_write(target: Path, content: bytes):
     """Atomically replace a workspace file without following swapped path components.
 
@@ -655,8 +705,9 @@ def rollback(req: RollbackRequest):
                 raise HTTPException(500, "Snapshot backup is missing or outside snapshot storage.")
             _atomic_write(target, _read_relative_file(snapshot["backup_path"], allow_snapshot=True))
         else:
-            if target.exists():
-                target.unlink()
+            # Deletion is descriptor-relative on POSIX; a swapped parent symlink
+            # cannot redirect rollback outside the workspace.
+            _unlink_relative_file(relative_path)
         con.execute(
             "UPDATE snapshots SET rolled_back_at=CURRENT_TIMESTAMP WHERE id=?",
             (req.snapshot_id,),
