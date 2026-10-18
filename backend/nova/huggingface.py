@@ -301,7 +301,7 @@ def list_local_model_cache():
                 break
             relative = resolved.relative_to(root).as_posix()
             files.append({"relative_path": relative, "file_path": str(resolved), "size_bytes": size,
-                          "format": resolved.suffix.lower().lstrip("."), "registered": False})
+                          "format": resolved.suffix.lower().lstrip(".")})
             total_bytes += size
     except OSError as exc:
         raise HTTPException(500, "Unable to inspect the local model cache.") from exc
