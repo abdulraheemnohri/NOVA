@@ -9,6 +9,13 @@ router=APIRouter(prefix="/api/agent/tools",tags=["agent tools"])
 class Call(BaseModel):
  model_config=ConfigDict(extra="forbid")
  name:str=Field(min_length=1,max_length=60);input:dict={}
+def _is_number(value):
+ try:
+  float(value)
+  return True
+ except ValueError:
+  return False
+
 def calculator(s):
  if not isinstance(s,str) or len(s)>256:raise ValueError("Invalid expression.")
  t=ast.parse(s,mode="eval")
@@ -74,7 +81,7 @@ def execute(req:Call):
    for name in headers:
     values=[(row.get(name) or "").strip() for row in rows]
     present=[v for v in values if v]
-    numeric=sum(1 for v in present if re.fullmatch(r"[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?",v))
+    numeric=sum(1 for v in present if _is_number(v))
     boolean=sum(1 for v in present if v.lower() in ("true","false","yes","no"))
     kind="empty" if not present else ("number" if numeric==len(present) else ("boolean" if boolean==len(present) else "text"))
     columns.append({"name":name,"non_empty":len(present),"missing":len(rows)-len(present),"inferred_type":kind})
@@ -84,9 +91,13 @@ def execute(req:Call):
    if not isinstance(value,str) or len(value)>100000:raise ValueError("Markdown must be a string of at most 100000 characters.")
    headings=[]
    for line_number,line in enumerate(value.splitlines(),1):
-    match=re.match(r"^ {0,3}(#{1,6})[ \\t]+(.+?)\\s*#*\\s*$",line)
-    if match:
-     headings.append({"level":len(match.group(1)),"text":match.group(2).strip(),"line":line_number})
+    stripped=line.lstrip(" ")
+    indent=len(line)-len(stripped)
+    if indent<=3 and stripped.startswith("#"):
+     marker=stripped.split(" ",1)[0]
+     if 1<=len(marker)<=6 and set(marker)=={"#"} and len(stripped)>len(marker) and stripped[len(marker)].isspace():
+      title=stripped[len(marker):].strip().strip("#").strip()
+      if title: headings.append({"level":len(marker),"text":title,"line":line_number})
      if len(headings)>500:raise ValueError("Markdown outline is limited to 500 headings.")
    r={"heading_count":len(headings),"headings":headings}
   elif req.name=="knowledge_search":
