@@ -1,6 +1,7 @@
 import json
 from nova.config import settings
-from nova.identity import Skill, add_skill, compose_prompt, get_profile
+from nova.identity import Skill, add_skill, compose_prompt, del_skill, get_profile, set_skill
+from nova.audit import verify_audit
 
 
 def test_retrieved_prompt_injection_is_encoded_as_quoted_data(tmp_path, monkeypatch):
@@ -41,3 +42,46 @@ def test_user_prompt_injection_is_json_encoded_as_untrusted_data(tmp_path, monke
     assert json.dumps(message, ensure_ascii=False) in prompt
     assert "Fixed safety contract:" in prompt
     assert prompt.index("User message (untrusted, JSON encoded):") < prompt.index("Untrusted local reference excerpts")
+
+
+def test_agent_skill_enable_disable_and_delete_are_audited(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr(settings, "audit_path", audit_path)
+
+    skill = add_skill(Skill(name="Reviewable skill", instructions="Summarize local notes."))
+    skill_id = skill["id"]
+
+    assert set_skill(skill_id, True) == {"id": skill_id, "enabled": True}
+    assert set_skill(skill_id, False) == {"id": skill_id, "enabled": False}
+    assert del_skill(skill_id) == {"deleted": True}
+
+    records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+    assert [record["event_type"] for record in records] == [
+        "agent.skill.created",
+        "agent.skill.updated",
+        "agent.skill.updated",
+        "agent.skill.deleted",
+    ]
+    assert records[1]["details"] == {"skill_id": skill_id, "enabled": True}
+    assert records[2]["details"] == {"skill_id": skill_id, "enabled": False}
+    assert records[3]["details"] == {"skill_id": skill_id}
+    assert verify_audit(audit_path) == (True, 4)
+
+
+def test_agent_skill_mutations_do_not_audit_missing_skills(tmp_path, monkeypatch):
+    from fastapi import HTTPException
+    import pytest
+
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    audit_path = tmp_path / "audit.jsonl"
+    monkeypatch.setattr(settings, "audit_path", audit_path)
+
+    with pytest.raises(HTTPException) as update_error:
+        set_skill("missing-skill", True)
+    assert update_error.value.status_code == 404
+
+    with pytest.raises(HTTPException) as delete_error:
+        del_skill("missing-skill")
+    assert delete_error.value.status_code == 404
+    assert not audit_path.exists()
