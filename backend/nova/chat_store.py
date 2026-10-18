@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 from io import BytesIO
 import zipfile
 import json
@@ -317,6 +318,157 @@ def export_conversation(conversation_id: str, format: str = "json"):
             headers={"Content-Disposition": f'attachment; filename="nova-chat-{safe_id}.md"',
                      "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
         )
+    finally:
+        con.close()
+
+
+@router.post("/import", status_code=201)
+async def import_chat_backup(file: UploadFile = File(...)):
+    """Restore a bounded NOVA ZIP backup; never extract archive paths directly."""
+    archive_bytes = await file.read(110 * 1024 * 1024 + 1)
+    await file.close()
+    if len(archive_bytes) > 110 * 1024 * 1024:
+        raise HTTPException(413, "Chat backup archive exceeds the 110 MiB limit.")
+    if not archive_bytes:
+        raise HTTPException(422, "Backup file is empty.")
+    try:
+        archive = zipfile.ZipFile(BytesIO(archive_bytes), "r")
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise HTTPException(422, "Upload a valid NOVA ZIP backup.") from exc
+
+    written_paths: list[Path] = []
+    con = _connect()
+    try:
+        with archive:
+            entries = archive.infolist()
+            if len(entries) > 103:
+                raise HTTPException(413, "Backup contains too many archive entries.")
+            names: set[str] = set()
+            total_uncompressed = 0
+            for entry in entries:
+                name = entry.filename
+                path_parts = Path(name).parts
+                if (not name or name.startswith(("/", "\\")) or "\\" in name
+                        or any(part in {"", ".", ".."} for part in path_parts)
+                        or name in names):
+                    raise HTTPException(422, "Backup contains an unsafe or duplicate archive path.")
+                names.add(name)
+                # Reject Unix symbolic links and other non-regular file entries.
+                mode = (entry.external_attr >> 16) & 0xFFFF
+                if mode and (mode & 0o170000) not in {0, 0o100000, 0o040000}:
+                    raise HTTPException(422, "Backup contains an unsupported filesystem entry.")
+                total_uncompressed += entry.file_size
+                if total_uncompressed > 110 * 1024 * 1024:
+                    raise HTTPException(413, "Backup expands beyond the 110 MiB limit.")
+            if "conversation.json" not in names:
+                raise HTTPException(422, "Backup is missing conversation.json.")
+            try:
+                payload = json.loads(archive.read("conversation.json"))
+            except (json.JSONDecodeError, UnicodeDecodeError, KeyError) as exc:
+                raise HTTPException(422, "Backup conversation.json is invalid.") from exc
+            if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+                raise HTTPException(422, "Unsupported NOVA backup schema version.")
+            source_conversation = payload.get("conversation")
+            source_messages = payload.get("messages")
+            source_attachments = payload.get("attachments")
+            if (not isinstance(source_conversation, dict) or not isinstance(source_messages, list)
+                    or not isinstance(source_attachments, list) or len(source_messages) > 5000
+                    or len(source_attachments) > 100):
+                raise HTTPException(422, "Backup conversation structure is invalid or exceeds limits.")
+            title = source_conversation.get("title")
+            if not isinstance(title, str) or not title.strip() or len(title) > 120:
+                raise HTTPException(422, "Backup conversation title is invalid.")
+
+            attachment_map: dict[str, str] = {}
+            restored_uploads: list[dict[str, Any]] = []
+            upload_dir = settings.workspace / "chat-uploads"
+            upload_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if upload_dir.is_symlink():
+                raise HTTPException(403, "Upload storage must not be a symbolic link.")
+            total_upload_bytes = 0
+            for metadata in source_attachments:
+                if not isinstance(metadata, dict):
+                    raise HTTPException(422, "Backup attachment metadata is invalid.")
+                old_id = metadata.get("id")
+                original_name = metadata.get("original_name")
+                extension = Path(original_name or "").suffix.lower() if isinstance(original_name, str) else ""
+                if (not isinstance(old_id, str) or not old_id or not isinstance(original_name, str)
+                        or not original_name or len(original_name) > 255 or Path(original_name).name != original_name
+                        or "/" in original_name or "\\" in original_name or extension not in ALLOWED_EXTENSIONS):
+                    raise HTTPException(422, "Backup contains unsupported attachment metadata.")
+                prefix = "attachments/" + old_id + "_"
+                matches = [name for name in names if name.startswith(prefix)]
+                if len(matches) != 1:
+                    raise HTTPException(422, "Backup is missing an attachment or contains ambiguous attachment entries.")
+                data = archive.read(matches[0])
+                total_upload_bytes += len(data)
+                if total_upload_bytes > 100 * 1024 * 1024:
+                    raise HTTPException(413, "Restored attachment data is limited to 100 MiB.")
+                expected_size = metadata.get("size_bytes")
+                expected_digest = metadata.get("sha256")
+                if (not isinstance(expected_size, int) or expected_size != len(data)
+                        or not isinstance(expected_digest, str)
+                        or not hmac.compare_digest(hashlib.sha256(data).hexdigest(), expected_digest)):
+                    raise HTTPException(422, "Attachment size or SHA-256 validation failed.")
+                new_id = str(uuid.uuid4())
+                safe_stem = _SAFE_NAME.sub("_", Path(original_name).stem).strip("._")[:80] or "upload"
+                stored_name = f"{new_id}_{safe_stem}{extension}"
+                target = upload_dir / stored_name
+                with target.open("xb") as stream:
+                    stream.write(data)
+                written_paths.append(target)
+                attachment_map[old_id] = new_id
+                restored_uploads.append({
+                    "id": new_id, "original_name": original_name, "stored_name": stored_name,
+                    "content_type": metadata.get("content_type") if isinstance(metadata.get("content_type"), str) else "application/octet-stream",
+                    "size_bytes": len(data), "sha256": expected_digest,
+                    "extracted_text": metadata.get("extracted_text") if isinstance(metadata.get("extracted_text"), str) else "",
+                    "created_at": _now(),
+                })
+
+            restored_messages: list[tuple[str, str, str, str, str, str]] = []
+            for item in source_messages:
+                if not isinstance(item, dict) or item.get("role") not in {"user", "assistant", "system"}:
+                    raise HTTPException(422, "Backup contains an invalid message.")
+                content = item.get("content")
+                old_refs = item.get("attachments", [])
+                if not isinstance(content, str) or not content or len(content) > 50000 or not isinstance(old_refs, list) or len(old_refs) > 10:
+                    raise HTTPException(422, "Backup message content or attachment references are invalid.")
+                if any(not isinstance(ref, str) or ref not in attachment_map for ref in old_refs):
+                    raise HTTPException(422, "Backup message references an attachment that is not included.")
+                restored_messages.append((
+                    str(uuid.uuid4()), "", item["role"], content,
+                    json.dumps([attachment_map[ref] for ref in old_refs]), _now(),
+                ))
+            now = _now()
+            conversation_id = str(uuid.uuid4())
+            con.execute("INSERT INTO chat_conversations(id,title,archived,created_at,updated_at) VALUES(?,?,?,?,?)",
+                        (conversation_id, title.strip(), 0, now, now))
+            for attachment in restored_uploads:
+                con.execute(
+                    "INSERT INTO chat_uploads(id,conversation_id,original_name,stored_name,content_type,size_bytes,sha256,extracted_text,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                    (attachment["id"], conversation_id, attachment["original_name"], attachment["stored_name"],
+                     attachment["content_type"], attachment["size_bytes"], attachment["sha256"],
+                     attachment["extracted_text"], attachment["created_at"]),
+                )
+            for message_id, _, role, content, refs_json, created_at in restored_messages:
+                con.execute(
+                    "INSERT INTO chat_messages(id,conversation_id,role,content,attachments_json,created_at) VALUES(?,?,?,?,?,?)",
+                    (message_id, conversation_id, role, content, refs_json, created_at),
+                )
+            con.commit()
+            return {"id": conversation_id, "title": title.strip(), "messages_restored": len(restored_messages),
+                    "attachments_restored": len(restored_uploads), "archived": False}
+    except HTTPException:
+        con.rollback()
+        for path in written_paths:
+            path.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        con.rollback()
+        for path in written_paths:
+            path.unlink(missing_ok=True)
+        raise HTTPException(422, "Could not restore this backup; no conversation was imported.") from exc
     finally:
         con.close()
 

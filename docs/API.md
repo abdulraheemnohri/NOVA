@@ -150,6 +150,13 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - The allowlist is limited to Python, Git, Node.js, npm, CMake, FFmpeg version checks, and LiteRT-LM CLI help. Arbitrary terminal commands, scripts, pipes, redirects, and package installation are not exposed.
 
 
+## Chat backup restore
+
+- \`POST /chat/import\` (multipart \`file\`): restore a NOVA ZIP created by the chat's Backup ZIP action.
+- Restore creates a new conversation and new attachment IDs; the original conversation remains unchanged.
+- The importer validates the ZIP paths, schema version, message roles and attachment references, then verifies each attachment's size and SHA-256 before storing it.
+- Limits: 110 MiB uploaded archive, 110 MiB uncompressed entries, 100 attachments, 100 MiB total attachment bytes, 5,000 messages, and 10 attachments per message. Invalid or unsafe archives are rejected; files written during a failed restore are cleaned up.
+
 ## Persistent chat
 
 - `GET /chat/conversations`: list non-archived conversations; `?archived=true` lists archived conversations. Optional `q` filters conversation titles.
