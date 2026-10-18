@@ -185,3 +185,36 @@ def test_chat_exports_json_and_markdown_without_embedding_upload_bytes(monkeypat
         assert invalid.status_code == 422
         missing = client.get("/api/chat/conversations/not-a-real-id/export")
         assert missing.status_code == 404
+
+
+def test_chat_zip_backup_contains_transcript_and_original_attachment(monkeypatch, tmp_path):
+    import json
+    import zipfile
+    from io import BytesIO
+
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        conversation = client.post("/api/chat/conversations", json={"title": "Zip backup"}).json()
+        cid = conversation["id"]
+        uploaded = client.post(
+            f"/api/chat/conversations/{cid}/attachments",
+            files={"file": ("backup-notes.txt", b"archive payload", "text/plain")},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        attachment = uploaded.json()
+        client.post(
+            f"/api/chat/conversations/{cid}/messages",
+            json={"role": "user", "content": "Export all of this", "attachments": [attachment["id"]]},
+        )
+        response = client.get(f"/api/chat/conversations/{cid}/export?format=zip")
+        assert response.status_code == 200, response.text
+        assert response.headers["content-type"].startswith("application/zip")
+        with zipfile.ZipFile(BytesIO(response.content)) as archive:
+            names = archive.namelist()
+            assert "conversation.json" in names
+            assert "conversation.md" in names
+            attachment_name = next(name for name in names if name.startswith("attachments/"))
+            assert archive.read(attachment_name) == b"archive payload"
+            payload = json.loads(archive.read("conversation.json"))
+            assert payload["conversation"]["title"] == "Zip backup"
+            assert payload["messages"][0]["content"] == "Export all of this"
