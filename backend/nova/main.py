@@ -30,7 +30,7 @@ from nova.diagnostics import router as diagnostics_router
 from nova.runtimes import router as runtimes_router, runtime_inventory, create_runtime_install_request, RuntimeInstallPreviewRequest
 from nova.scheduler import router as scheduler_router, start_worker, stop_worker, initialize_scheduler_config
 from nova.system_monitor import router as system_router
-from nova.settings_preferences import get_preferences, get_feature_settings, get_ai_capabilities, router as settings_preferences_router
+from nova.settings_preferences import get_preferences, get_feature_settings, get_ai_capabilities, FeatureSettingsUpdate, update_feature_settings, router as settings_preferences_router
 from nova.security import PersistentRateLimiter
 from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router, catalog as agent_tool_catalog, execute as execute_agent_tool, Call as AgentToolCall
@@ -537,6 +537,8 @@ def api_chat(req: ChatRequest):
             guidance += "\nRuntime inventory is currently unavailable."
     if capabilities["ai_runtime_management_enabled"]:
         guidance += "\nWhen the user explicitly asks to install a supported optional runtime, you may output ONLY JSON: {\"nova_runtime_request\":{\"runtime_id\":\"ffmpeg-audio or tesseract-ocr\"}}. This creates a pending operator approval request only; never claim installation or execution."
+    if capabilities["ai_runtime_configuration_enabled"]:
+        guidance += "\nFor explicit requests to enable or disable a task runtime, you may output ONLY JSON: {\"nova_runtime_config\":{\"setting\":\"whisper_enabled|piper_enabled|ocr_enabled|onnx_runtime_enabled|local_retrieval_enabled\",\"enabled\":true}}. Only these allowlisted task switches are available; never change project settings, security policy, network policy, model download permissions, or AI capability permissions."
     prompt = compose_prompt(req.message, excerpts, include_skills=capabilities["ai_skill_use_enabled"], extra_guidance=guidance)
     _audit("chat.request", {
         "message_sha256": hashlib.sha256(req.message.encode()).hexdigest(),
@@ -589,6 +591,24 @@ def api_chat(req: ChatRequest):
                     answer = "Created tool proposal draft '" + created["name"] + "' (ID " + created["id"] + "). Only its registered safe primitive is eligible; review it in the Self-Improvement Lab."
                 except (HTTPException, ValueError, TypeError) as exc:
                     answer = "Tool proposal rejected: " + str(getattr(exc, "detail", exc))
+                break
+            if isinstance(action.get("nova_runtime_config"), dict):
+                if not capabilities["ai_runtime_configuration_enabled"]:
+                    answer = "Runtime configuration changes are disabled by the operator."
+                    break
+                change = action["nova_runtime_config"]
+                allowed_runtime_settings = {"whisper_enabled", "piper_enabled", "ocr_enabled", "onnx_runtime_enabled", "local_retrieval_enabled"}
+                setting_name, enabled_value = change.get("setting"), change.get("enabled")
+                if setting_name not in allowed_runtime_settings or not isinstance(enabled_value, bool):
+                    answer = "Runtime configuration change denied: only allowlisted task-runtime toggles accept boolean values."
+                    break
+                try:
+                    current = get_feature_settings()
+                    current[setting_name] = enabled_value
+                    updated = update_feature_settings(FeatureSettingsUpdate(**current))
+                    answer = "Runtime configuration updated: " + setting_name + " is now " + ("enabled" if updated[setting_name] else "disabled") + ". Project settings and security controls were not changed."
+                except (HTTPException, ValueError, TypeError) as exc:
+                    answer = "Runtime configuration change rejected: " + str(getattr(exc, "detail", exc))
                 break
             if isinstance(action.get("nova_runtime_request"), dict):
                 if not capabilities["ai_runtime_management_enabled"]:
