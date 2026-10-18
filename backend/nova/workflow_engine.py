@@ -307,7 +307,3 @@ def recover_interrupted_runs() -> int:
     return len(rows)
 
 
-@router.on_event("startup")
-def _recover_interrupted_workflows() -> None:
-    """Recover stale active workflow records during application startup."""
-    recover_interrupted_runs()
