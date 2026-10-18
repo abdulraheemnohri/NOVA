@@ -8,14 +8,17 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata
 import importlib.util
+import json
 import os
+import sqlite3
 import shutil
 import subprocess
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -260,6 +263,129 @@ def preview_runtime_installation(req: RuntimeInstallPreviewRequest):
         "executed": False,
         "safety": "Preview only. NOVA did not run sudo, apt-get, pip, or any shell command. Review package sources and approve/run the command yourself.",
     }
+
+
+
+
+class RuntimeInstallDecisionRequest(BaseModel):
+    decision: Literal["approve", "reject"]
+    note: str = Field(default="", max_length=500)
+
+
+def _runtime_request_db() -> sqlite3.Connection:
+    """Open the local approval ledger; this database never drives package execution."""
+    path = Path(settings.database_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(path, timeout=10)
+    connection.row_factory = sqlite3.Row
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS runtime_install_requests (
+            request_id TEXT PRIMARY KEY,
+            runtime_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            packages_json TEXT NOT NULL,
+            command TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending', 'approved', 'rejected')),
+            created_at TEXT NOT NULL,
+            decided_at TEXT,
+            decision_note TEXT
+        )
+    """)
+    return connection
+
+
+def _runtime_request_payload(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "request_id": row["request_id"],
+        "runtime_id": row["runtime_id"],
+        "title": row["title"],
+        "packages": json.loads(row["packages_json"]),
+        "command": row["command"],
+        "reason": row["reason"],
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "decided_at": row["decided_at"],
+        "decision_note": row["decision_note"],
+        "executed": False,
+    }
+
+
+@router.post("/operations/requests", status_code=201)
+def create_runtime_install_request(req: RuntimeInstallPreviewRequest):
+    """Create a pending approval record from the strict package allowlist; do not execute it."""
+    plan = _RUNTIME_PACKAGE_PLANS.get(req.runtime_id)
+    if plan is None:
+        raise HTTPException(422, "No installation request is available for this runtime.")
+    packages = list(plan["packages"])
+    command = "sudo apt-get install --no-install-recommends " + " ".join(packages)
+    request_id = uuid.uuid4().hex
+    created_at = datetime.now(timezone.utc).isoformat()
+    connection = _runtime_request_db()
+    try:
+        connection.execute(
+            """INSERT INTO runtime_install_requests
+               (request_id, runtime_id, title, packages_json, command, reason, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
+            (request_id, req.runtime_id, plan["title"], json.dumps(packages), command, plan["reason"], created_at),
+        )
+        connection.commit()
+        row = connection.execute(
+            "SELECT * FROM runtime_install_requests WHERE request_id = ?", (request_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+    append_audit(settings.audit_path, "runtime.install_request.created", {
+        "request_id": request_id, "runtime_id": req.runtime_id, "status": "pending",
+    })
+    return _runtime_request_payload(row)
+
+
+@router.get("/operations/requests")
+def list_runtime_install_requests(limit: int = Query(default=50, ge=1, le=100)):
+    """List recent install approval requests; no command is executed."""
+    connection = _runtime_request_db()
+    try:
+        rows = connection.execute(
+            "SELECT * FROM runtime_install_requests ORDER BY created_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return {"requests": [_runtime_request_payload(row) for row in rows]}
+    finally:
+        connection.close()
+
+
+@router.post("/operations/requests/{request_id}/decision")
+def decide_runtime_install_request(request_id: str, req: RuntimeInstallDecisionRequest):
+    """Record an operator decision atomically; approval is not package execution."""
+    connection = _runtime_request_db()
+    decided_at = datetime.now(timezone.utc).isoformat()
+    status = "approved" if req.decision == "approve" else "rejected"
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT * FROM runtime_install_requests WHERE request_id = ?", (request_id,)
+        ).fetchone()
+        if row is None:
+            connection.rollback()
+            raise HTTPException(404, "Installation request not found.")
+        if row["status"] != "pending":
+            connection.rollback()
+            raise HTTPException(409, "This installation request has already been decided.")
+        connection.execute(
+            """UPDATE runtime_install_requests SET status = ?, decided_at = ?, decision_note = ?
+               WHERE request_id = ? AND status = 'pending'""",
+            (status, decided_at, req.note.strip(), request_id),
+        )
+        connection.commit()
+        updated = connection.execute(
+            "SELECT * FROM runtime_install_requests WHERE request_id = ?", (request_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+    append_audit(settings.audit_path, "runtime.install_request." + status, {
+        "request_id": request_id, "runtime_id": updated["runtime_id"], "status": status,
+    })
+    return _runtime_request_payload(updated)
 
 
 @router.post("/ocr/extract")
