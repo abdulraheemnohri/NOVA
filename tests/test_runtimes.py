@@ -463,3 +463,42 @@ def test_runtime_install_executor_is_blocked_regardless_of_root_or_approval(tmp_
         )
         assert response.status_code == 403
         assert "never runs package managers" in response.json()["detail"]
+
+
+def test_runtime_feature_switches_block_optional_capabilities(tmp_path, monkeypatch):
+    from nova import runtimes
+    from nova.config import settings
+
+    monkeypatch.setattr(settings, "litert_lm_command", "")
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.put("/api/settings/features", headers=headers, json={
+            "local_retrieval_enabled": True,
+            "model_hub_enabled": True,
+            "model_downloads_enabled": True,
+            "whisper_enabled": False,
+            "piper_enabled": False,
+            "ocr_enabled": False,
+            "onnx_runtime_enabled": False,
+            "max_model_download_bytes": 100000000,
+        })
+        assert response.status_code == 200, response.text
+        whisper = client.post("/api/runtimes/whisper/transcribe", headers=headers,
+                              files={"file": ("sample.wav", b"not audio", "audio/wav")})
+        ocr = client.post("/api/runtimes/ocr/extract", headers=headers,
+                          files={"file": ("sample.png", b"not image", "image/png")})
+        piper = client.post("/api/runtimes/piper/synthesize", headers=headers,
+                            json={"text": "hello"})
+    assert whisper.status_code == 403
+    assert ocr.status_code == 403
+    assert piper.status_code == 403
+
+
+def test_litert_autostart_status_is_read_only_and_reports_capability(tmp_path, monkeypatch):
+    from nova import runtimes
+    monkeypatch.setattr(runtimes.platform, "system", lambda: "Windows")
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.get("/api/runtimes/litert/autostart", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["supported"] is False
+    assert data["service"] == "nova-litert-lm.service"
