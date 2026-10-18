@@ -272,3 +272,42 @@ def run_workflow(workflow_id: str):
         finally:
             con.close()
         raise
+
+
+def recover_interrupted_runs() -> int:
+    """Mark runs left active by a process crash as interrupted; never replay side effects."""
+    con = _db()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        rows = con.execute(
+            "SELECT id, workflow_id FROM workflow_runs WHERE status='running'"
+        ).fetchall()
+        if not rows:
+            con.commit()
+            return 0
+        now = _now()
+        con.execute(
+            "UPDATE workflow_runs SET status='interrupted', updated_at=?, finished_at=? "
+            "WHERE status='running'",
+            (now, now),
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+    # Keep each audit record small and avoid recording workflow inputs/results.
+    for row in rows:
+        append_audit(settings.audit_path, "workflow.run_interrupted", {
+            "run_id": row["id"], "workflow_id": row["workflow_id"],
+            "reason": "process_restart",
+        })
+    return len(rows)
+
+
+@router.on_event("startup")
+def _recover_interrupted_workflows() -> None:
+    """Recover stale active workflow records during application startup."""
+    recover_interrupted_runs()
