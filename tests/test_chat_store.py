@@ -119,3 +119,27 @@ def test_pdf_upload_extracts_text_or_reports_scanned_pdf_limit(monkeypatch, tmp_
             files={"file": ("broken.pdf", b"not a PDF", "application/pdf")},
         )
         assert malformed.status_code == 422
+
+
+
+def test_image_attachment_is_stored_and_downloadable_without_text_decoding(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    # Minimal PNG signature; this endpoint stores files and does not decode image pixels.
+    png = b"\x89PNG\r\n\x1a\n" + b"image-payload"
+    with _client() as client:
+        conversation = client.post("/api/chat/conversations", json={"title": "Images"}).json()
+        cid = conversation["id"]
+        uploaded = client.post(
+            f"/api/chat/conversations/{cid}/attachments",
+            files={"file": ("diagram.png", png, "image/png")},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        attachment = uploaded.json()
+        assert attachment["content_type"] == "image/png"
+        assert attachment["text_extracted"] is False
+        assert "image pixels" in (attachment["note"] or "")
+        downloaded = client.get(
+            f"/api/chat/conversations/{cid}/attachments/{attachment['id']}/download"
+        )
+        assert downloaded.status_code == 200
+        assert downloaded.content == png
