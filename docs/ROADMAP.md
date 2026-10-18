@@ -63,3 +63,9 @@ A feature is complete only when API, UI controls, persistence, permission checks
 
 ## Skill usability improvement
 - Agent Workbench offers four built-in starter skill templates: structured summarizer, read-only code reviewer, project planner, and local knowledge assistant. Template-created skills start disabled and require an explicit operator enable action; skill text remains untrusted guidance and cannot grant permissions.
+
+
+## Recently added local analysis tools
+- `csv_summary` reports row/column counts, missing values and conservative per-column type hints from bounded CSV input (100,000 characters, 2,000 rows, 100 columns).
+- `markdown_outline` extracts Markdown heading levels and line numbers from bounded text (100,000 characters, 500 headings).
+- Both are default-deny policy registered, audit logged, and available through the live Agent Workbench tool catalog/runner. No file, shell, or network permissions are added.
