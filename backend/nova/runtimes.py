@@ -25,7 +25,8 @@ from pydantic import BaseModel, Field
 
 from nova.audit import append_audit
 from nova.config import settings
-from nova.litert import health as litert_health\nfrom nova.settings_preferences import get_feature_settings
+from nova.litert import health as litert_health
+from nova.settings_preferences import get_feature_settings
 
 router = APIRouter(prefix="/api/runtimes", tags=["model runtimes"])
 
@@ -129,7 +130,8 @@ def runtime_inventory() -> dict[str, Any]:
     whisper_validation = _validate_whisper_model(whisper_model)
     piper_validation = _validate_piper_voice(piper_model, piper_metadata)
     litert = litert_health()
-    features = get_feature_settings()\n    onnx_available = features["onnx_runtime_enabled"] and _module_available("onnxruntime")
+    features = get_feature_settings()
+    onnx_available = features["onnx_runtime_enabled"] and _module_available("onnxruntime")
     tflite_available = _module_available("tflite_runtime") or _module_available("ai_edge_litert")
     transformers_available = _module_available("transformers")
     runtimes = [
