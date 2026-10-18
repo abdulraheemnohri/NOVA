@@ -392,7 +392,8 @@ async def import_chat_backup(file: UploadFile = File(...)):
                 original_name = metadata.get("original_name")
                 extension = Path(original_name or "").suffix.lower() if isinstance(original_name, str) else ""
                 if (not isinstance(old_id, str) or not old_id or not isinstance(original_name, str)
-                        or not original_name or len(original_name) > 255 or extension not in ALLOWED_EXTENSIONS):
+                        or not original_name or len(original_name) > 255 or Path(original_name).name != original_name
+                        or "/" in original_name or "\\" in original_name or extension not in ALLOWED_EXTENSIONS):
                     raise HTTPException(422, "Backup contains unsupported attachment metadata.")
                 prefix = "attachments/" + old_id + "_"
                 matches = [name for name in names if name.startswith(prefix)]
