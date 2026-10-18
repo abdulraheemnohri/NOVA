@@ -236,14 +236,27 @@ def run_workflow(workflow_id: str):
             append_audit(settings.audit_path, "workflow.step_finished", {
                 "run_id": run_id, "workflow_id": workflow_id, "step": index + 1,
                 "tool": step["tool"], "status": record["status"]})
-        status = "cancelled" if cancelled else ("completed_with_errors" if any_failure else "succeeded")
         finished = _now()
         con = _db()
         try:
+            # Serialize finalization with cancellation requests so a cancellation
+            # during the final primitive cannot be lost at the end of the loop.
+            con.execute("BEGIN IMMEDIATE")
+            state = con.execute(
+                "SELECT cancel_requested FROM workflow_runs WHERE id=? AND status='running'",
+                (run_id,),
+            ).fetchone()
+            if state is None:
+                raise RuntimeError("Workflow run left the running state before finalization.")
+            cancelled = cancelled or bool(state["cancel_requested"])
+            status = "cancelled" if cancelled else ("completed_with_errors" if any_failure else "succeeded")
             con.execute("UPDATE workflow_runs SET status=?,steps_json=?,current_step=?,updated_at=?,finished_at=? WHERE id=? AND status='running'",
                         (status, json.dumps(execution, ensure_ascii=False, default=str), len(execution), finished, finished, run_id))
             con.commit()
             row = con.execute("SELECT * FROM workflow_runs WHERE id=?", (run_id,)).fetchone()
+        except Exception:
+            con.rollback()
+            raise
         finally:
             con.close()
         append_audit(settings.audit_path, "workflow.run_finished", {
