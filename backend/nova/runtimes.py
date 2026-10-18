@@ -271,6 +271,10 @@ class RuntimeInstallDecisionRequest(BaseModel):
     decision: Literal["approve", "reject"]
     note: str = Field(default="", max_length=500)
 
+class RuntimeInstallExecuteRequest(BaseModel):
+    confirm_request_id: str = Field(min_length=1, max_length=64)
+    confirm_install: bool = False
+
 
 def _runtime_request_db() -> sqlite3.Connection:
     """Open the local approval ledger; this database never drives package execution."""
@@ -290,6 +294,19 @@ def _runtime_request_db() -> sqlite3.Connection:
             created_at TEXT NOT NULL,
             decided_at TEXT,
             decision_note TEXT
+        )
+    """)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS runtime_install_executions (
+            execution_id TEXT PRIMARY KEY,
+            request_id TEXT NOT NULL UNIQUE,
+            status TEXT NOT NULL CHECK(status IN ('running', 'succeeded', 'failed')),
+            started_at TEXT NOT NULL,
+            finished_at TEXT,
+            exit_code INTEGER,
+            output_excerpt TEXT NOT NULL DEFAULT '',
+            recovery_guidance TEXT NOT NULL,
+            FOREIGN KEY(request_id) REFERENCES runtime_install_requests(request_id)
         )
     """)
     return connection
@@ -386,6 +403,131 @@ def decide_runtime_install_request(request_id: str, req: RuntimeInstallDecisionR
         "request_id": request_id, "runtime_id": updated["runtime_id"], "status": status,
     })
     return _runtime_request_payload(updated)
+
+
+_RUNTIME_INSTALL_TIMEOUT_SECONDS = 600
+_RUNTIME_INSTALL_OUTPUT_LIMIT = 8000
+_RUNTIME_INSTALL_RECOVERY = (
+    "Inspect the recorded output and system package-manager logs. Resolve repository, "
+    "dependency, disk-space, or lock issues manually, then review package state with "
+    "dpkg --audit and apt-get -f install before retrying. NOVA does not automatically "
+    "remove packages or attempt rollback because that could remove unrelated dependencies."
+)
+
+
+@router.post("/operations/requests/{request_id}/execute")
+def execute_approved_runtime_installation(request_id: str, req: RuntimeInstallExecuteRequest):
+    """Run one allowlisted apt plan only when separately enabled and explicitly confirmed."""
+    if os.environ.get("NOVA_RUNTIME_INSTALL_EXECUTION_ENABLED", "").strip().lower() != "true":
+        raise HTTPException(403, "Runtime installation execution is disabled.")
+    if not req.confirm_install or req.confirm_request_id != request_id:
+        raise HTTPException(400, "Explicit installation confirmation must match the request ID.")
+    if not hasattr(os, "geteuid") or os.geteuid() != 0:
+        raise HTTPException(403, "The restricted apt installer requires a privileged backend process; NOVA will not invoke sudo.")
+
+    connection = _runtime_request_db()
+    try:
+        connection.execute("BEGIN IMMEDIATE")
+        row = connection.execute(
+            "SELECT * FROM runtime_install_requests WHERE request_id = ?", (request_id,)
+        ).fetchone()
+        if row is None:
+            connection.rollback()
+            raise HTTPException(404, "Installation request not found.")
+        if row["status"] != "approved":
+            connection.rollback()
+            raise HTTPException(409, "Only explicitly approved installation requests can be executed.")
+        plan = _RUNTIME_PACKAGE_PLANS.get(row["runtime_id"])
+        if plan is None or json.loads(row["packages_json"]) != plan["packages"]:
+            connection.rollback()
+            raise HTTPException(422, "Stored package plan no longer matches the allowlist.")
+        existing = connection.execute(
+            "SELECT status FROM runtime_install_executions WHERE request_id = ?", (request_id,)
+        ).fetchone()
+        if existing is not None:
+            connection.rollback()
+            raise HTTPException(409, "This request already has an execution record and cannot be retried.")
+        execution_id = uuid.uuid4().hex
+        started_at = datetime.now(timezone.utc).isoformat()
+        connection.execute(
+            """INSERT INTO runtime_install_executions
+               (execution_id, request_id, status, started_at, recovery_guidance)
+               VALUES (?, ?, 'running', ?, ?)""",
+            (execution_id, request_id, started_at, _RUNTIME_INSTALL_RECOVERY),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    apt_get = shutil.which("apt-get")
+    if not apt_get:
+        exit_code, output, status = None, "apt-get executable was not found on PATH.", "failed"
+    else:
+        argv = [str(Path(apt_get).resolve()), "install", "--no-install-recommends", "-y", "--", *plan["packages"]]
+        try:
+            result = subprocess.run(
+                argv, shell=False, check=False, capture_output=True, text=True,
+                timeout=_RUNTIME_INSTALL_TIMEOUT_SECONDS,
+                env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C.UTF-8", "DEBIAN_FRONTEND": "noninteractive"},
+            )
+            exit_code = result.returncode
+            output = ((result.stdout or "") + "\\n" + (result.stderr or ""))[-_RUNTIME_INSTALL_OUTPUT_LIMIT:]
+            status = "succeeded" if result.returncode == 0 else "failed"
+        except subprocess.TimeoutExpired as exc:
+            exit_code, status = None, "failed"
+            raw = (exc.stdout or b"") + b"\\n" + (exc.stderr or b"")
+            output = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw))[-_RUNTIME_INSTALL_OUTPUT_LIMIT:]
+            output += "\\nInstallation process exceeded the 600-second timeout and was terminated."
+        except OSError as exc:
+            exit_code, status, output = None, "failed", "Could not start apt-get: " + type(exc).__name__
+
+    finished_at = datetime.now(timezone.utc).isoformat()
+    connection = _runtime_request_db()
+    try:
+        connection.execute(
+            """UPDATE runtime_install_executions
+               SET status = ?, finished_at = ?, exit_code = ?, output_excerpt = ?
+               WHERE execution_id = ? AND status = 'running'""",
+            (status, finished_at, exit_code, output, execution_id),
+        )
+        connection.commit()
+        execution = connection.execute(
+            "SELECT * FROM runtime_install_executions WHERE execution_id = ?", (execution_id,)
+        ).fetchone()
+    finally:
+        connection.close()
+    append_audit(settings.audit_path, "runtime.install_execution." + status, {
+        "request_id": request_id, "execution_id": execution_id,
+        "runtime_id": row["runtime_id"], "exit_code": exit_code,
+    })
+    return {
+        "execution_id": execution["execution_id"], "request_id": execution["request_id"],
+        "status": execution["status"], "started_at": execution["started_at"],
+        "finished_at": execution["finished_at"], "exit_code": execution["exit_code"],
+        "output_excerpt": execution["output_excerpt"],
+        "recovery_guidance": execution["recovery_guidance"], "executed": True,
+        "safety": "Fixed allowlisted apt-get argv only; no shell or sudo. Execution required explicit confirmation and opt-in enablement.",
+    }
+
+
+@router.get("/operations/requests/{request_id}/execution")
+def get_runtime_install_execution(request_id: str):
+    connection = _runtime_request_db()
+    try:
+        row = connection.execute(
+            "SELECT * FROM runtime_install_executions WHERE request_id = ?", (request_id,)
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "No execution record exists for this request.")
+        return {
+            "execution_id": row["execution_id"], "request_id": row["request_id"],
+            "status": row["status"], "started_at": row["started_at"],
+            "finished_at": row["finished_at"], "exit_code": row["exit_code"],
+            "output_excerpt": row["output_excerpt"], "recovery_guidance": row["recovery_guidance"],
+            "executed": True,
+        }
+    finally:
+        connection.close()
 
 
 @router.post("/ocr/extract")
