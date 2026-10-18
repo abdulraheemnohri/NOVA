@@ -19,8 +19,9 @@ from nova.config import settings
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".csv", ".json", ".html", ".htm", ".py", ".js", ".ts", ".tsx", ".css", ".yaml", ".yml", ".toml", ".log", ".pdf"}
-TEXT_EXTENSIONS = ALLOWED_EXTENSIONS - {".pdf"}
+ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".csv", ".json", ".html", ".htm", ".py", ".js", ".ts", ".tsx", ".css", ".yaml", ".yml", ".toml", ".log", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
+TEXT_EXTENSIONS = ALLOWED_EXTENSIONS - {".pdf"} - IMAGE_EXTENSIONS
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -217,7 +218,7 @@ async def upload_attachment(conversation_id: str, file: UploadFile = File(...)):
     original_name = Path(file.filename or "upload").name
     extension = Path(original_name).suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
-        raise HTTPException(415, "Unsupported file type. Allowed: text, code, CSV, JSON, HTML, YAML, TOML, logs, and PDF.")
+        raise HTTPException(415, "Unsupported file type. Allowed: text, code, CSV, JSON, HTML, YAML, TOML, logs, PDF, PNG, JPEG, WebP, and GIF.")
     # Read at most limit + 1 bytes so Content-Length cannot bypass the limit.
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     await file.close()
