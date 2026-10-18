@@ -139,7 +139,7 @@ bash scripts/install_autostart.sh install --enable-linger
 
 # Inspect services
 bash scripts/install_autostart.sh status
-systemctl --user --no-pager logs nova-backend.service
+journalctl --user -u nova-backend.service -n 100 --no-pager
 journalctl --user -u nova-frontend.service -n 100 --no-pager
 
 # Remove auto-start (does not delete NOVA data or disable user lingering)
