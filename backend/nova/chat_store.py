@@ -440,6 +440,7 @@ async def import_chat_backup(file: UploadFile = File(...)):
                     str(uuid.uuid4()), "", item["role"], content,
                     json.dumps([attachment_map[ref] for ref in old_refs]), _now(),
                 ))
+            now = _now()
             conversation_id = str(uuid.uuid4())
             con.execute("INSERT INTO chat_conversations(id,title,archived,created_at,updated_at) VALUES(?,?,?,?,?)",
                         (conversation_id, title.strip(), 0, now, now))
@@ -467,7 +468,7 @@ async def import_chat_backup(file: UploadFile = File(...)):
         con.rollback()
         for path in written_paths:
             path.unlink(missing_ok=True)
-        raise HTTPException(422, f"Could not restore this backup; no conversation was imported ({type(exc).__name__}: {exc}).") from exc
+        raise HTTPException(422, "Could not restore this backup; no conversation was imported.") from exc
     finally:
         con.close()
 
