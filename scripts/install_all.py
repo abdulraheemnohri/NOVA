@@ -5,12 +5,12 @@ from __future__ import annotations
 import argparse
 import os
 import platform
-import shutil
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Sequence
+from collections.abc import Sequence
 
 ROOT = Path(__file__).resolve().parent.parent
 EXCLUDED_DIRS = {
@@ -93,7 +93,7 @@ def run(command: Sequence[str], *, dry_run: bool) -> None:
 
 
 def install(*, dry_run: bool = False, skip_system_runtimes: bool = False) -> int:
-    if sys.version_info < (3, 11):
+    if sys.version_info < (3, 11):  # noqa: UP036
         print("NOVA requires Python 3.11+. Run this installer with a supported Python.", file=sys.stderr)
         return 2
 
