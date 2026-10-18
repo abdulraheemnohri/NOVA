@@ -33,7 +33,8 @@ def test_persistent_limiter_survives_new_instance(tmp_path):
     assert not first.allow("client", now=101)
     restarted = PersistentRateLimiter(lambda: path, requests_per_minute=1, block_seconds=5)
     assert not restarted.allow("client", now=102)
-    assert restarted.allow("client", now=106)
+    assert not restarted.allow("client", now=106)  # sliding window is still full
+    assert restarted.allow("client", now=161)
 
 
 def test_persistent_failed_auth_budget_survives_restart(tmp_path):
