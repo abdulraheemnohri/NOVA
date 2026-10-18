@@ -151,3 +151,25 @@ def test_model_cache_inventory_is_bounded_read_only_and_ignores_partial_files(mo
     assert data["total_bytes"] == 6
     assert data["files"][0]["relative_path"] == "repo/revision/model.litertlm"
     assert "registered" not in data["files"][0]
+
+
+def test_feature_switch_blocks_hub_search_and_download(monkeypatch, tmp_path):
+    monkeypatch.setattr(huggingface, "_hub_json", lambda _url: pytest.fail("network metadata should not be requested"))
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.put("/api/settings/features", json={
+            "local_retrieval_enabled": True,
+            "model_hub_enabled": False,
+            "model_downloads_enabled": False,
+            "whisper_enabled": True,
+            "piper_enabled": True,
+            "ocr_enabled": True,
+            "onnx_runtime_enabled": True,
+            "max_model_download_bytes": 100000000,
+        })
+        assert response.status_code == 200, response.text
+        search = client.get("/api/models/huggingface/search?q=tiny")
+        download = client.post("/api/models/huggingface/download", json={
+            "repo_id": "example/model", "filename": "model.litertlm", "revision": "main",
+        })
+    assert search.status_code == 403
+    assert download.status_code == 403
