@@ -106,3 +106,27 @@ button:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid
 @media (prefers-reduced-motion: reduce) {
   .animate-spin { animation: none !important; }
 }
+
+
+/* Device-fit polish: safe areas, touch targets, and narrow-screen overflow. */
+html { scroll-padding-top: 1rem; -webkit-text-size-adjust: 100%; }
+body { padding-bottom: env(safe-area-inset-bottom); }
+img, video, canvas, svg { max-width: 100%; }
+pre, code { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  body { overflow-x: hidden; }
+  main { width: 100%; min-width: 0; padding-left: max(.85rem, env(safe-area-inset-left)) !important; padding-right: max(.85rem, env(safe-area-inset-right)) !important; }
+  main > section, main > section > *, .panel { min-width: 0; }
+  button, [role="button"], select { min-height: 42px; }
+  input, textarea, select { max-width: 100%; font-size: 16px; }
+  table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  pre { max-width: 100%; overflow-x: auto; }
+}
+@media (max-width: 380px) {
+  main { padding-left: .7rem !important; padding-right: .7rem !important; }
+  .panel { padding-left: .85rem; padding-right: .85rem; }
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  main > header { padding-bottom: .7rem; margin-bottom: .8rem; }
+  .panel { backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
