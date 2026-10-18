@@ -1,4 +1,7 @@
 from contextlib import contextmanager
+from io import BytesIO
+
+from pypdf import PdfWriter
 
 from fastapi.testclient import TestClient
 
@@ -91,3 +94,28 @@ def test_chat_message_cannot_reference_another_conversations_attachment(monkeypa
             json={"role": "user", "content": "Read it", "attachments": [uploaded["id"]]},
         )
         assert response.status_code == 422
+
+
+
+def test_pdf_upload_extracts_text_or_reports_scanned_pdf_limit(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    pdf = BytesIO()
+    writer.write(pdf)
+    with _client() as client:
+        conversation = client.post("/api/chat/conversations", json={"title": "PDF"}).json()
+        response = client.post(
+            f"/api/chat/conversations/{conversation['id']}/attachments",
+            files={"file": ("blank.pdf", pdf.getvalue(), "application/pdf")},
+        )
+        assert response.status_code == 201, response.text
+        attachment = response.json()
+        assert attachment["text_extracted"] is False
+        assert "OCR" in attachment["note"]
+
+        malformed = client.post(
+            f"/api/chat/conversations/{conversation['id']}/attachments",
+            files={"file": ("broken.pdf", b"not a PDF", "application/pdf")},
+        )
+        assert malformed.status_code == 422
