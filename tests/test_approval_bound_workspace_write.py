@@ -96,7 +96,7 @@ def test_workspace_write_approval_is_single_use(tmp_path, monkeypatch):
         row = con.execute("SELECT status FROM approvals WHERE id=?", (approval_id,)).fetchone()
     finally:
         con.close()
-    assert row["status"] == "consuming"
+    assert row["status"] == "consumed"
     assert verify_audit(settings.audit_path)[0] is True
 
 
