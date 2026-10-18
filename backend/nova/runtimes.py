@@ -188,7 +188,7 @@ def runtime_inventory() -> dict[str, Any]:
             "purpose": "Specialized ONNX models: embeddings, OCR, classifiers and compatible audio models",
             "role": "specialized_model_runtime", "detected": onnx_available,
             "version": _distribution_version("onnxruntime") if onnx_available else None,
-            "configured": settings.onnxruntime_enabled,
+            "configured": features["onnx_runtime_enabled"],
             "status": "ready" if onnx_available else "not_available",
             "policy": "Inventory only until a task-specific model adapter is enabled.",
         },
