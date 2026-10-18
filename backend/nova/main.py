@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import secrets
+import stat
 import hmac
 import sqlite3
 import tempfile
@@ -232,6 +233,53 @@ def _safe_path(relative: str) -> Path:
     if target == root or root not in target.parents:
         raise HTTPException(403, "Path escapes workspace.")
     return target
+
+
+def _read_relative_file(relative_path: str, *, allow_snapshot: bool = False) -> bytes:
+    """Read a workspace or internal snapshot file without following symlinks on POSIX."""
+    relative = Path(relative_path)
+    if relative.is_absolute() or not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
+        raise OSError("Invalid workspace-relative read path")
+    is_snapshot = relative.parts[0] == ".nova-snapshots"
+    if is_snapshot and not allow_snapshot:
+        raise OSError("Snapshot storage is reserved")
+    if allow_snapshot and not is_snapshot:
+        raise OSError("Snapshot backup path must stay in snapshot storage")
+
+    root = settings.workspace.resolve()
+    if os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or os.open not in os.supports_dir_fd:
+        target = _safe_path(relative_path) if not is_snapshot else (root / relative)
+        if is_snapshot and (target.parent.resolve() != (root / ".nova-snapshots").resolve()):
+            raise OSError("Snapshot path escapes internal storage")
+        return target.read_bytes()
+
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    root_fd = os.open(root, flags)
+    opened_fds = []
+    parent_fd = root_fd
+    try:
+        for part in relative.parts[:-1]:
+            next_fd = os.open(part, flags, dir_fd=parent_fd)
+            opened_fds.append(next_fd)
+            parent_fd = next_fd
+        file_fd = os.open(relative.parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
+        try:
+            if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+                raise OSError("Workspace read target is not a regular file")
+            chunks = []
+            while True:
+                chunk = os.read(file_fd, 1024 * 1024)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            return b"".join(chunks)
+        finally:
+            os.close(file_fd)
+    finally:
+        for fd in reversed(opened_fds):
+            os.close(fd)
+        os.close(root_fd)
+
 
 
 def _atomic_write(target: Path, content: bytes):
@@ -498,7 +546,7 @@ def write_file(req: FileWriteRequest):
         if snapshot_dir.is_symlink():
             raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
         backup = snapshot_dir / f"{snapshot_id}.bak"
-        backup.write_bytes(target.read_bytes())
+        backup.write_bytes(_read_relative_file(req.relative_path))
         backup_path = str(backup.relative_to(settings.workspace))
     con = _db()
     try:
@@ -605,7 +653,7 @@ def rollback(req: RollbackRequest):
             backup = (settings.workspace / snapshot["backup_path"]).resolve()
             if snapshot_root not in backup.parents or not backup.is_file():
                 raise HTTPException(500, "Snapshot backup is missing or outside snapshot storage.")
-            _atomic_write(target, backup.read_bytes())
+            _atomic_write(target, _read_relative_file(snapshot["backup_path"], allow_snapshot=True))
         else:
             if target.exists():
                 target.unlink()
