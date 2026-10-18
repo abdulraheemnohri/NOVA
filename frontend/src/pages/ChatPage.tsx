@@ -19,8 +19,8 @@ function MarkdownMessage({content}:{content:string}){
 }
 function renderTextBlocks(text:string,keyPrefix:string):ReactNode[]{
  return text.split(/\n{2,}/).map((block,i)=>{const key=keyPrefix+`-${i}`;const trimmed=block.trim();if(!trimmed)return null;const heading=trimmed.match(/^(#{1,3})\s+(.+)$/);if(heading){const Tag=heading[1].length===1?"h3":heading[1].length===2?"h4":"h5";return <Tag key={key} className="my-2 font-semibold text-cyan-100">{inlineMarkdown(heading[2])}</Tag>}
- const lines=trimmed.split("\n");if(lines.every(line=>/^\s*[-*]\s+/.test(line)))return <ul key={key} className="my-2 list-disc space-y-1 pl-5">{lines.map((line,j)=><li key={j}>{inlineMarkdown(line.replace(/^\s*[-*]\s+/,""))}</li>)};
- if(lines.every(line=>/^\s*\d+\.\s+/.test(line)))return <ol key={key} className="my-2 list-decimal space-y-1 pl-5">{lines.map((line,j)=><li key={j}>{inlineMarkdown(line.replace(/^\s*\d+\.\s+/,""))}</li>)};
+ const lines=trimmed.split("\n");if(lines.every(line=>/^\s*[-*]\s+/.test(line)))return <ul key={key} className="my-2 list-disc space-y-1 pl-5">{lines.map((line,j)=><li key={j}>{inlineMarkdown(line.replace(/^\s*[-*]\s+/,""))}</li> )}</ul>;
+ if(lines.every(line=>/^\s*\d+\.\s+/.test(line)))return <ol key={key} className="my-2 list-decimal space-y-1 pl-5">{lines.map((line,j)=><li key={j}>{inlineMarkdown(line.replace(/^\s*\d+\.\s+/,""))}</li> )}</ol>;
  return <p key={key} className="my-2 whitespace-pre-wrap break-words">{lines.map((line,j)=><span key={j}>{j>0&&<br/>}{inlineMarkdown(line)}</span>)}</p>;
  });
 }
