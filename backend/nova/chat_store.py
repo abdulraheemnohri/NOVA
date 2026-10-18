@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from nova.config import settings
@@ -136,6 +137,18 @@ def delete_conversation(conversation_id: str):
     con = _connect()
     try:
         _require_conversation(con, conversation_id)
+        # Delete stored uploads only after verifying each filename is a direct child of
+        # the dedicated upload directory and is not a symlink.
+        upload_dir = settings.workspace / "chat-uploads"
+        rows = con.execute("SELECT stored_name FROM chat_uploads WHERE conversation_id=?", (conversation_id,)).fetchall()
+        for row in rows:
+            stored = Path(row["stored_name"])
+            if len(stored.parts) != 1 or stored.name != row["stored_name"]:
+                raise HTTPException(500, "Unsafe attachment metadata encountered; deletion stopped.")
+            target = upload_dir / stored.name
+            if target.is_symlink():
+                raise HTTPException(500, "Attachment storage contains a symbolic link; deletion stopped.")
+            target.unlink(missing_ok=True)
         # Delete child records explicitly because SQLite foreign keys are not globally enabled.
         con.execute("DELETE FROM chat_messages WHERE conversation_id=?", (conversation_id,))
         con.execute("DELETE FROM chat_uploads WHERE conversation_id=?", (conversation_id,))
@@ -244,6 +257,27 @@ async def upload_attachment(conversation_id: str, file: UploadFile = File(...)):
     except Exception:
         con.rollback()
         raise
+    finally:
+        con.close()
+
+
+@router.get("/conversations/{conversation_id}/attachments/{attachment_id}/download")
+def download_attachment(conversation_id: str, attachment_id: str):
+    con = _connect()
+    try:
+        _require_conversation(con, conversation_id)
+        row = con.execute("SELECT * FROM chat_uploads WHERE id=? AND conversation_id=?",
+                          (attachment_id, conversation_id)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Attachment not found.")
+        upload_dir = settings.workspace / "chat-uploads"
+        if upload_dir.is_symlink():
+            raise HTTPException(403, "Upload storage must not be a symbolic link.")
+        path = upload_dir / row["stored_name"]
+        if path.is_symlink() or not path.is_file() or path.resolve().parent != upload_dir.resolve():
+            raise HTTPException(404, "Stored attachment is unavailable.")
+        return FileResponse(path, media_type=row["content_type"], filename=row["original_name"],
+                            headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"})
     finally:
         con.close()
 
