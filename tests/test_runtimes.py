@@ -482,6 +482,7 @@ def test_runtime_install_executor_requires_root_and_approval(tmp_path, monkeypat
         assert response.status_code == 409
         client.post(f"/api/runtimes/operations/requests/{request_id}/decision",
                     headers=headers, json={"decision": "approve"})
+        monkeypatch.setattr(runtimes.os, "geteuid", lambda: 1000)
         response = client.post(
             f"/api/runtimes/operations/requests/{request_id}/execute",
             headers=headers,
