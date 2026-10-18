@@ -143,3 +143,45 @@ def test_image_attachment_is_stored_and_downloadable_without_text_decoding(monke
         )
         assert downloaded.status_code == 200
         assert downloaded.content == png
+
+
+def test_chat_exports_json_and_markdown_without_embedding_upload_bytes(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        conversation = client.post("/api/chat/conversations", json={"title": "Export me"}).json()
+        cid = conversation["id"]
+        uploaded = client.post(
+            f"/api/chat/conversations/{cid}/attachments",
+            files={"file": ("notes.txt", b"private extracted text", "text/plain")},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        attachment = uploaded.json()
+        saved = client.post(
+            f"/api/chat/conversations/{cid}/messages",
+            json={"role": "user", "content": "Please keep this", "attachments": [attachment["id"]]},
+        )
+        assert saved.status_code == 201
+
+        json_export = client.get(f"/api/chat/conversations/{cid}/export?format=json")
+        assert json_export.status_code == 200
+        assert "attachment; filename=" in json_export.headers["content-disposition"]
+        payload = json_export.json()
+        assert payload["schema_version"] == 1
+        assert payload["conversation"]["title"] == "Export me"
+        assert payload["messages"][0]["content"] == "Please keep this"
+        assert payload["messages"][0]["attachments"] == [attachment["id"]]
+        assert payload["attachments"][0]["sha256"] == attachment["sha256"]
+        assert "binary files are not embedded" in payload["attachment_policy"].lower()
+
+        markdown_export = client.get(f"/api/chat/conversations/{cid}/export?format=markdown")
+        assert markdown_export.status_code == 200
+        assert "text/markdown" in markdown_export.headers["content-type"]
+        assert "# Export me" in markdown_export.text
+        assert "Please keep this" in markdown_export.text
+        assert "notes.txt" in markdown_export.text
+        assert "private extracted text" in markdown_export.text
+
+        invalid = client.get(f"/api/chat/conversations/{cid}/export?format=html")
+        assert invalid.status_code == 422
+        missing = client.get("/api/chat/conversations/not-a-real-id/export")
+        assert missing.status_code == 404
