@@ -280,3 +280,33 @@ def test_exhausted_retries_preserve_checkpoint_and_attempts_for_resume(isolated_
     assert history["status"] == "failed"
     assert history["current_step"] == 0
     assert [item["status"] for item in history["attempts"]] == ["failed", "failed"]
+
+
+def test_text_stats_is_registered_and_bounded_skill_primitive(isolated_store):
+    import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Text Analysis", description="Count words and lines in supplied text",
+        instructions="Analyze only the explicit text supplied by the operator.",
+    ))
+    activate_skill(created["id"])
+    result = module.run_skill(created["id"], module.SkillRunRequest(steps=[
+        module.SkillStep(tool="text_stats", input={"text": "NOVA offline\\nverified agent"}),
+    ]))
+    assert result["status"] == "succeeded"
+    assert result["results"][0]["characters"] == len("NOVA offline\\nverified agent")
+    assert result["results"][0]["words"] == 4
+    assert result["results"][0]["lines"] == 2
+
+
+def test_text_stats_rejects_oversized_input_before_execution(isolated_store):
+    import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Text Limits", description="Validate input bounds",
+        instructions="Analyze bounded text only.",
+    ))
+    activate_skill(created["id"])
+    with pytest.raises(HTTPException) as error:
+        module.run_skill(created["id"], module.SkillRunRequest(steps=[
+            module.SkillStep(tool="text_stats", input={"text": "x" * 10001}),
+        ]))
+    assert error.value.status_code == 422
