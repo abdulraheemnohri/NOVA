@@ -70,7 +70,10 @@ def configure_huggingface_token(req: HubTokenRequest):
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=".nova-hub-token-", dir=path.parent)
     try:
-        os.fchmod(fd, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+        except (AttributeError, OSError):
+            pass
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(token + "\n")
             stream.flush()
