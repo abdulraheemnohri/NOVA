@@ -1,6 +1,12 @@
-# Optional task-specific libraries. These are NOT chat inference runtimes.
-# Install only when you need the corresponding adapter and your platform supports it.
-# CPU ONNX Runtime for future/local ONNX task adapters:
+# Optional task-specific libraries and CLI runtimes. These are NOT chat inference fallbacks.
+# The all-in-one installer installs every requirements*.txt manifest. Runtime processes remain idle until a task needs them.
+# Official LiteRT-LM CLI: primary chat inference runtime (service is not auto-started).
+litert-lm>=0.18,<1
+
+# Piper TTS CLI package; voice model and metadata are configured separately.
+piper-tts>=1.2,<2
+
+# CPU ONNX Runtime for local task adapters:
 onnxruntime>=1.18,<2
 # Optional document/image utilities for future OCR and ingestion adapters:
 Pillow>=10,<13
