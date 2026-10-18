@@ -27,13 +27,17 @@ def calculator(s):
   raise ValueError("Only numeric arithmetic is allowed.")
  return ev(t)
 @router.get("")
-def catalog():return {"tools":[{"name":"calculator"},{"name":"knowledge_search"}],"shell":False,"network":False,"writes":False}
+def catalog():return {"tools":[{"name":"calculator","input_schema":{"expression":"string"}},{"name":"knowledge_search","input_schema":{"query":"string"}},{"name":"text_stats","input_schema":{"text":"string"}}],"shell":False,"network":False,"writes":False}
 @router.post("/execute")
 def execute(req:Call):
  d=evaluate_tool(req.name)
  if not d.allowed or d.requires_approval:raise HTTPException(403,d.reason)
  try:
   if req.name=="calculator":r={"result":calculator(req.input.get("expression"))}
+  elif req.name=="text_stats":
+   value=req.input.get("text")
+   if not isinstance(value,str) or len(value)>10000:raise ValueError("Text must be a string of at most 10000 characters.")
+   r={"characters":len(value),"words":len(value.split()),"lines":len(value.splitlines()) if value else 0}
   elif req.name=="knowledge_search":
    q=req.input.get("query")
    if not isinstance(q,str) or not q.strip() or len(q)>1000:raise ValueError("Invalid query.")
