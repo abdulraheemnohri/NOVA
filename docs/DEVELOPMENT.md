@@ -70,6 +70,16 @@ For backend tests without frontend dependencies, activate `.venv` and run `pytho
 
 Whisper.cpp and Piper are external local executables and require compatible local model/voice files. They are not Python packages and cannot be reliably installed on every CPU/OS through a generic requirements file. Configure their paths in `.env`; run `bash scripts/check_optional_runtimes.sh` to inspect availability. ONNX Runtime can be installed with `python -m pip install -r requirements-optional.txt` when needed. The app's primary chat runtime remains LiteRT-LM; no optional runtime is an automatic chat fallback.
 
+## LiteRT-LM slow-inference timeout
+
+The LiteRT-LM chat request timeout defaults to 120 seconds. On slower CPU-only systems, set `NOVA_LITERT_CHAT_TIMEOUT_SECONDS` in the backend environment to an integer from 5 to 600 seconds, then restart the backend. For example:
+
+```dotenv
+NOVA_LITERT_CHAT_TIMEOUT_SECONDS=240
+```
+
+This setting controls how long NOVA waits for a single local chat response; it does not change the model's generation limit or fix a runtime that disconnects unexpectedly. Health/model-list checks retain a short timeout so the dashboard can report an unavailable server quickly. The timeout is environment-controlled rather than editable from the browser.
+
 ## Offline notes
 
 The source archive produced by `scripts/package_source.sh` is not a fully offline installer. To install on a disconnected machine, pre-stage compatible Python wheels, npm package cache/lock data, the LiteRT-LM runtime and model, and any optional executable/model assets for the target architecture. Do not bundle `.env`, `data/api.token`, local databases, audit logs or personal workspace data.
