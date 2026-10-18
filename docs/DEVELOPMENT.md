@@ -85,6 +85,30 @@ All installed runtimes remain idle until a feature explicitly needs one. The app
 The Runtimes page provides **Installation command previews** for supported optional Debian/Ubuntu packages FFmpeg and Tesseract OCR + Pillow. Those UI previews are display-only allowlisted commands: the web API never executes package-manager commands, even if a legacy execution flag is set. The separate operator-invoked `scripts/install_all.py` installer can install supported OS packages when run directly in a trusted local terminal. Review its plan with `--dry-run` first. Whisper.cpp and Piper are external local executables and require compatible local model/voice files; they cannot be reliably installed on every CPU/OS through a generic apt command. Configure their paths in `.env`; run `bash scripts/check_optional_runtimes.sh` to inspect availability. ONNX Runtime can be installed with `python -m pip install -r requirements-optional.txt` when needed. The app's primary chat runtime remains LiteRT-LM; no optional runtime is an automatic chat fallback.
 
 
+## Optional runtime installation and model validation
+
+The base installer deliberately installs dependencies and system tools without starting model processes or downloading model weights. After the base setup, use the explicit runtime installer for selected task runtimes:
+
+```bash
+# Install LiteRT-LM CLI into NOVA's .venv (primary chat runtime package)
+python scripts/install_optional_runtimes.py --litert-lm
+
+# Install Piper TTS into NOVA's .venv
+python scripts/install_optional_runtimes.py --piper
+
+# Build whisper.cpp from an explicitly pinned upstream tag
+python scripts/install_optional_runtimes.py --whisper-cpp --whisper-tag v1.7.6
+
+# Review commands without making changes
+python scripts/install_optional_runtimes.py --litert-lm --piper --dry-run
+```
+
+Run only the options you need. The whisper.cpp build requires Git, CMake and a working C/C++ compiler; on Windows, install the Visual Studio C++ build tools separately. The installer does not download model weights or Piper voices. Set `NOVA_WHISPER_CLI_PATH`, `NOVA_WHISPER_MODEL_PATH`, `NOVA_PIPER_CLI_PATH`, and `NOVA_PIPER_MODEL_PATH` in `.env` to your local files.
+
+NOVA's runtime inventory and `GET /api/runtimes/preflight` perform read-only checks. Whisper model files must be present, readable and plausibly sized; Piper requires a non-empty ONNX voice file and a valid JSON sidecar with a positive sample rate and phoneme map. These checks do not load model weights or guarantee hardware compatibility. The LiteRT-LM package installation does not select a model, start a server, or change the configured chat endpoint. Choose a supported model/server setup from the [official LiteRT-LM CLI installation guide](https://developers.google.com/edge/litert-lm/cli/installation) and usage documentation.
+
+Installed runtimes remain idle until a feature needs them. Independent OCR/transcription jobs may run concurrently; NOVA does not launch every runtime at startup. LiteRT-LM remains the only chat-inference runtime, with no silent fallback to Piper, Whisper.cpp, ONNX, Transformers, or llama.cpp.
+
 ## LiteRT-LM slow-inference timeout
 
 The LiteRT-LM chat request timeout defaults to 120 seconds. On slower CPU-only systems, set `NOVA_LITERT_CHAT_TIMEOUT_SECONDS` in the backend environment to an integer from 5 to 600 seconds, then restart the backend. For example:
