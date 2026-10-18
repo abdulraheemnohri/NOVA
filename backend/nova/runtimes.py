@@ -36,6 +36,11 @@ class SynthesisRequest(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
 
 
+async def _run_local_command(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
+    """Run a local runtime command off the event loop so independent jobs can overlap."""
+    return await asyncio.to_thread(subprocess.run, *args, **kwargs)
+
+
 def _resolve_executable(configured: str, candidates: tuple[str, ...]) -> str | None:
     if configured.strip():
         path = Path(configured).expanduser()
@@ -493,8 +498,7 @@ async def extract_image_text(file: UploadFile = File(...)):
             image_path = Path(temp_dir) / "input.png"
             normalized.save(image_path, format="PNG", optimize=False)
             try:
-                result = await asyncio.to_thread(
-                    subprocess.run,
+                result = await _run_local_command(
                     [executable, str(image_path), "stdout", "--psm", "6"],
                     capture_output=True, text=True, timeout=settings.ocr_timeout_seconds,
                     check=False, shell=False,
@@ -662,8 +666,7 @@ async def transcribe_with_whisper(file: UploadFile = File(...)):
             "-otxt", "-of", str(output_prefix), "-nt",
         ]
         try:
-            completed = await asyncio.to_thread(
-                subprocess.run,
+            completed = await _run_local_command(
                 command, shell=False, capture_output=True, text=True,
                 timeout=timeout, check=False, cwd=str(workspace),
             )
