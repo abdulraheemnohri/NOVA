@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Cross-platform NOVA dependency installer; installation never starts runtimes."""
 from __future__ import annotations
 
