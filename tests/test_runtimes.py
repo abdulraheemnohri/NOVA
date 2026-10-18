@@ -469,7 +469,7 @@ def test_runtime_install_executor_requires_root_and_approval(tmp_path, monkeypat
     from nova import runtimes
 
     monkeypatch.setenv("NOVA_RUNTIME_INSTALL_EXECUTION_ENABLED", "true")
-    monkeypatch.setattr(runtimes.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(runtimes.os, "geteuid", lambda: 0)
     with _client(tmp_path, monkeypatch) as (client, headers):
         created = client.post("/api/runtimes/operations/requests", headers=headers,
                               json={"runtime_id": "ffmpeg-audio"})
