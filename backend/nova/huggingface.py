@@ -19,7 +19,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from nova.config import settings
-from nova.audit import append_audit\nfrom nova.settings_preferences import get_feature_settings
+from nova.audit import append_audit
+from nova.settings_preferences import get_feature_settings
 
 router = APIRouter(prefix="/api/models/huggingface", tags=["Hugging Face model hub"])
 _REPO_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
