@@ -115,3 +115,9 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 ## Safe local utility tools
 
 `GET /api/agent/tools` returns the registered tool catalog and input schemas. `POST /api/agent/tools/execute` accepts `{"name":"...","input":{...}}` and only runs registered tools allowed by the default-deny policy. Utility tools include `calculator`, `text_stats`, `json_format`, `base64_encode`, and `base64_decode`; `knowledge_search` queries local knowledge. Inputs are size-bounded, failures are audited, and unknown tools are denied. The catalog does not imply shell, arbitrary network, or file-write access.
+
+
+## Additional read-only analysis tools
+- `POST /api/agent/tools/execute` supports `csv_summary` with `{"name":"csv_summary","input":{"csv":"name,age\\nA,20"}}`. It returns bounded row/column counts and per-column missing-value counts plus conservative type hints. Input is limited to 100,000 characters, 2,000 rows and 100 unique columns; malformed/duplicate headers are rejected.
+- `POST /api/agent/tools/execute` supports `markdown_outline` with `{"name":"markdown_outline","input":{"markdown":"# Title\\n## Section"}}`. It returns heading levels, text and source line numbers for up to 500 headings and 100,000 input characters.
+- Both tools are deterministic, local, read-only, policy-registered and audit logged. They do not execute document content, access the network, or write files.
