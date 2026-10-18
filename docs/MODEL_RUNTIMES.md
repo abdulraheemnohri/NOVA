@@ -101,3 +101,9 @@ The authenticated read-only `GET /api/runtimes/preflight` endpoint summarizes th
 ## Runtime operations: package previews
 
 The authenticated `POST /api/runtimes/operations/preview` endpoint currently supports read-only Debian/Ubuntu previews for FFmpeg and Tesseract/Pillow. It accepts runtime IDs from a strict allowlist and returns a fixed package list and command for operator review. Unsupported IDs are rejected. No shell or package manager is invoked, no installation occurs, and the operator must review package sources and execute any approved command manually. Whisper.cpp, Piper, and model runtimes retain their upstream-specific setup instructions.
+
+## Runtime installation approval ledger
+
+The authenticated `POST /api/runtimes/operations/requests` endpoint creates a persistent, pending request for one of the strictly allowlisted Debian package plans. `GET /api/runtimes/operations/requests` lists recent requests, and `POST /api/runtimes/operations/requests/{request_id}/decision` records an explicit `approve` or `reject` decision. Decisions are atomic, terminal, and audit logged; duplicate decisions return a conflict. Request contents are stored in the configured local NOVA SQLite database.
+
+**Approval is bookkeeping, not execution.** Even an approved request never invokes `sudo`, `apt-get`, a shell, or any package manager. The queue exposes a fixed command for operator review, and the operator remains responsible for reviewing and running it manually. Unsupported runtime IDs are rejected; arbitrary package names or commands cannot be submitted.
