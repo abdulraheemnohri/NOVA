@@ -235,6 +235,38 @@ def _safe_path(relative: str) -> Path:
     return target
 
 
+
+def _ensure_snapshot_directory() -> Path:
+    """Create/validate the internal snapshot directory without following symlinks."""
+    root = settings.workspace.resolve()
+    if os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or os.open not in os.supports_dir_fd:
+        snapshot_dir = root / ".nova-snapshots"
+        if snapshot_dir.is_symlink():
+            raise OSError("The internal snapshot store must not be a symbolic link")
+        snapshot_dir.mkdir(mode=0o700, parents=False, exist_ok=True)
+        if snapshot_dir.is_symlink() or not snapshot_dir.is_dir():
+            raise OSError("The internal snapshot store is not a real directory")
+        return snapshot_dir
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    root_fd = os.open(root, directory_flags)
+    try:
+        try:
+            os.mkdir(".nova-snapshots", mode=0o700, dir_fd=root_fd)
+        except FileExistsError:
+            pass
+        snapshot_fd = os.open(".nova-snapshots", directory_flags, dir_fd=root_fd)
+        try:
+            if not stat.S_ISDIR(os.fstat(snapshot_fd).st_mode):
+                raise OSError("The internal snapshot store is not a directory")
+            os.fsync(root_fd)
+        finally:
+            os.close(snapshot_fd)
+    finally:
+        os.close(root_fd)
+    return root / ".nova-snapshots"
+
+
 def _read_relative_file(relative_path: str, *, allow_snapshot: bool = False) -> bytes:
     """Read a workspace or internal snapshot file without following symlinks on POSIX."""
     relative = Path(relative_path)
@@ -548,9 +580,10 @@ def decide(approval_id: str, decision: str):
 @app.post("/api/workspace/write")
 def write_file(req: FileWriteRequest):
     target = _safe_path(req.relative_path)
-    snapshot_dir = settings.workspace / ".nova-snapshots"
-    if snapshot_dir.is_symlink():
-        raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
+    try:
+        snapshot_dir = _ensure_snapshot_directory()
+    except OSError as exc:
+        raise HTTPException(403, "The internal snapshot store must be a real, non-symlink directory.") from exc
     content = req.content.encode("utf-8")
     content_hash = hashlib.sha256(content).hexdigest()
     approved = False
@@ -589,15 +622,23 @@ def write_file(req: FileWriteRequest):
     existed = target.is_file()
     backup_path = None
     if existed:
-        # Recheck immediately before touching the internal recovery directory.
-        if snapshot_dir.is_symlink():
-            raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
-        snapshot_dir.mkdir(parents=True, exist_ok=True)
-        if snapshot_dir.is_symlink():
-            raise HTTPException(403, "The internal snapshot store must not be a symbolic link.")
-        backup = snapshot_dir / f"{snapshot_id}.bak"
-        backup.write_bytes(_read_relative_file(req.relative_path))
-        backup_path = str(backup.relative_to(settings.workspace))
+        try:
+            # The snapshot directory is opened/validated without following links;
+            # the backup itself uses the same descriptor-relative atomic writer
+            # as ordinary workspace files.
+            snapshot_dir = _ensure_snapshot_directory()
+            backup_path = f".nova-snapshots/{snapshot_id}.bak"
+            _atomic_write(settings.workspace.resolve() / backup_path, _read_relative_file(req.relative_path))
+        except OSError as exc:
+            if req.approval_id and approved:
+                con = _db()
+                try:
+                    con.execute("UPDATE approvals SET status='failed' WHERE id=? AND status='consuming'", (req.approval_id,))
+                    con.commit()
+                finally:
+                    con.close()
+            _audit("workspace.snapshot.failure", {"path": req.relative_path, "error": type(exc).__name__})
+            raise HTTPException(500, "Unable to create a safe workspace snapshot; no write was attempted.") from exc
     con = _db()
     try:
         con.execute(
