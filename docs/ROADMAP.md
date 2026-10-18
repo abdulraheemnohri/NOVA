@@ -29,6 +29,9 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - On startup, approvals left in `consuming` after an interrupted write/rollback are moved to `interrupted`, audit-logged, and excluded from automatic replay; operators must inspect the workspace and retained snapshots because a crash may occur before or after the filesystem side effect.
 - SQLite-backed API request rate limiting and a separate failed-authentication budget persist across restarts and are shared by workers using the same database; basic response security headers remain enabled. This is defense in depth, not multi-user RBAC or an edge limiter.
 
+## Recently added bounded tool capability
+- Added a read-only `text_stats` primitive to the agent tool catalog and skill workflow engine. It reports character, word and line counts for up to 10,000 characters; it does not execute generated code, access the network, or write files. UI workflow builder exposes it as an explicit step.
+
 ## Recently added operator usability
 - About page command guide for installation, launch, diagnostics, tests, API helper and startup service commands; links to the command and API references.
 - Opt-in Linux systemd per-user startup installer for backend and frontend, with status/uninstall and an explicit flag for user lingering. It does not run privileged commands or open public ports.
