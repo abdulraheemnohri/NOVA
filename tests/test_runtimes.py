@@ -267,3 +267,21 @@ def test_audio_conversion_fails_closed_when_ffmpeg_missing(tmp_path, monkeypatch
     with pytest.raises(HTTPException) as exc:
         runtimes._convert_audio_to_wav(tmp_path / "input.mp3", tmp_path / "output.wav", timeout=20)
     assert exc.value.status_code == 503
+
+def test_distribution_version_lookup_is_read_only_and_skips_missing_packages(monkeypatch):
+    from importlib.metadata import PackageNotFoundError
+    from nova import runtimes
+
+    calls = []
+
+    def fake_version(name):
+        calls.append(name)
+        if name == "tflite-runtime":
+            raise PackageNotFoundError(name)
+        if name == "ai-edge-litert":
+            return "1.2.3"
+        raise AssertionError("unexpected package lookup")
+
+    monkeypatch.setattr(runtimes.importlib.metadata, "version", fake_version)
+    assert runtimes._distribution_version("tflite-runtime", "ai-edge-litert") == "1.2.3"
+    assert calls == ["tflite-runtime", "ai-edge-litert"]
