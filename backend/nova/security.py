@@ -206,6 +206,11 @@ class PersistentRateLimiter:
         self.failed_auth_window_seconds = failed_auth_window_seconds
         self.block_seconds = block_seconds
 
+    @staticmethod
+    def _bucket_key(key: str) -> str:
+        import hashlib
+        return hashlib.sha256(key.encode("utf-8", errors="replace")).hexdigest()
+
     def _connect(self):
         import sqlite3
 
@@ -231,6 +236,7 @@ class PersistentRateLimiter:
 
     def auth_blocked(self, key: str, now: float | None = None) -> bool:
         import time
+        key = self._bucket_key(key)
         now = time.time() if now is None else now
         con = self._connect()
         try:
@@ -251,6 +257,7 @@ class PersistentRateLimiter:
 
     def allow(self, key: str, now: float | None = None) -> bool:
         import time
+        key = self._bucket_key(key)
         now = time.time() if now is None else now
         con = self._connect()
         try:
@@ -281,6 +288,7 @@ class PersistentRateLimiter:
 
     def record_auth_failure(self, key: str, now: float | None = None) -> None:
         import time
+        key = self._bucket_key(key)
         now = time.time() if now is None else now
         con = self._connect()
         try:
