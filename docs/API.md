@@ -111,3 +111,7 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - `GET /agent/tools` lists registered safe primitives and their fixed input schemas.
 - `POST /agent/tools/execute` supports `text_stats` with `{"name":"text_stats","input":{"text":"..."}}`; it returns character, word, and line counts for up to 10,000 characters. This operation is local, deterministic, and read-only.
 - Active self-created skills can use the same `text_stats` primitive in explicit structured workflow steps. All steps are preflighted before execution, and generated code is never run.
+
+## Safe local utility tools
+
+`GET /api/agent/tools` returns the registered tool catalog and input schemas. `POST /api/agent/tools/execute` accepts `{"name":"...","input":{...}}` and only runs registered tools allowed by the default-deny policy. Utility tools include `calculator`, `text_stats`, `json_format`, `base64_encode`, and `base64_decode`; `knowledge_search` queries local knowledge. Inputs are size-bounded, failures are audited, and unknown tools are denied. The catalog does not imply shell, arbitrary network, or file-write access.
