@@ -23,7 +23,7 @@ bash scripts/run_frontend.sh
 
 Open `http://127.0.0.1:5173`. On first startup NOVA creates `data/api.token` with restrictive permissions. Read it locally and paste it into the Web UI sign-in screen. Never share the token. Keep the backend bound to loopback.
 
-See [Development and Scripts](docs/DEVELOPMENT.md) for manual setup, dependency files, diagnostics, tests, packaging and optional runtime setup.
+See [Development and Scripts](docs/DEVELOPMENT.md) for manual setup, dependency files, diagnostics, tests, packaging and optional runtime setup. For model acquisition, configuration, offline setup and the full target-device smoke-test matrix, follow [Real-device installation and release validation](docs/REAL_DEVICE_TESTING.md).
 
 ## Dependency files
 
@@ -50,7 +50,7 @@ Chat performs a bounded local keyword search over indexed document chunks and re
 
 ## Task planner and queue
 
-The Tasks page stores local operator-authored tasks, plan steps, priority, optional timezone-aware due times, status transitions, attempt counts and results in SQLite. Every create/status/delete event is audit logged. The queue does not execute shell commands or model-generated plans, and due times are not scheduled until a dedicated worker is implemented. See `docs/TASKS_API.md`.
+The Tasks page stores local operator-authored tasks, plan steps, priority, optional timezone-aware due times, status transitions, attempt counts and results in SQLite. Every create/status/delete event is audit logged. The queue does not execute shell commands or model-generated plans. The opt-in local scheduler can move due tasks to Planned for operator review; it does not execute task plans. See `docs/TASKS_API.md`.
 
 ## Mobile / Android system monitoring
 
