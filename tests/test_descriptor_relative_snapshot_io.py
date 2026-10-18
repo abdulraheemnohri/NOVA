@@ -88,3 +88,40 @@ def test_relative_unlink_missing_target_is_idempotent(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "workspace", workspace)
 
     assert main._unlink_relative_file("missing.txt") is False
+
+
+@pytest.mark.skipif(os.name != "posix" or not hasattr(os, "O_NOFOLLOW"), reason="POSIX no-follow semantics required")
+def test_snapshot_directory_creation_refuses_symlink(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    outside = tmp_path / "outside"
+    workspace.mkdir()
+    outside.mkdir()
+    (workspace / ".nova-snapshots").symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(settings, "workspace", workspace)
+
+    with pytest.raises(OSError):
+        main._ensure_snapshot_directory()
+    assert list(outside.iterdir()) == []
+
+
+def test_snapshot_directory_is_created_with_private_permissions(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(settings, "workspace", workspace)
+
+    result = main._ensure_snapshot_directory()
+    assert result == workspace / ".nova-snapshots"
+    assert result.is_dir()
+    if os.name == "posix":
+        assert result.stat().st_mode & 0o077 == 0
+
+
+def test_snapshot_backup_atomic_write_uses_reserved_store_safely(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.setattr(settings, "workspace", workspace)
+    main._ensure_snapshot_directory()
+
+    backup = workspace.resolve() / ".nova-snapshots" / "test.bak"
+    main._atomic_write(backup, b"recovery-state")
+    assert main._read_relative_file(".nova-snapshots/test.bak", allow_snapshot=True) == b"recovery-state"
