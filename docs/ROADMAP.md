@@ -26,7 +26,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - API endpoints are under `/api/self/skills` and `/api/self/tools`; the Self-Improvement Lab UI supports creation and review. Skill execution accepts explicit structured steps only, preflights every step, limits runs to five calls to existing calculator/local knowledge-search primitives, persists run history, and emits audit events. Natural-language instructions are not interpreted as executable plans.
 
 ## Newly implemented hardening
-- Process-local API request rate limiting and a separate failed-authentication budget, with basic response security headers. This is single-process defense in depth, not multi-user RBAC or an edge limiter.
+- SQLite-backed API request rate limiting and a separate failed-authentication budget persist across restarts and are shared by workers using the same database; basic response security headers remain enabled. This is defense in depth, not multi-user RBAC or an edge limiter.
 
 ## Remaining work (not yet complete)
 1. Real target-device smoke tests for whisper.cpp and Piper, plus release-specific LiteRT-LM version reporting and model/accelerator validation.
@@ -37,7 +37,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 6. ONNX embeddings/OCR/classification and TFLite/LiteRT edge model execution adapters; runtime detection alone is not inference support.
 7. Streaming audio and adversarial content-isolation tests. Scanned-PDF OCR is now opt-in and requires Poppler + Tesseract. PDF/DOCX text extraction, explicit Tesseract image OCR, and opt-in scanned-PDF OCR are supported when their optional local dependencies are installed.
 8. Broader operational settings validation and safe editable settings persistence; the bounded workbench preference subset is implemented.
-9. Multi-user RBAC, CSRF protections for browser-session deployments, persistent/distributed rate-limit storage and encrypted sensitive storage.
+9. Multi-user RBAC, CSRF protections for browser-session deployments, distributed/edge rate-limit enforcement and encrypted sensitive storage.
 10. Workflow builder, multi-agent state machine, critic/verifier, prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware. Skill execution currently has a deliberately small allowlist and does not execute arbitrary generated code.
 
 ## Definition of done

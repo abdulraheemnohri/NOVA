@@ -1,4 +1,4 @@
-from nova.security import LocalRateLimiter
+from nova.security import LocalRateLimiter, PersistentRateLimiter
 
 
 def test_sliding_window_allows_limit_then_blocks_and_recovers():
@@ -7,7 +7,6 @@ def test_sliding_window_allows_limit_then_blocks_and_recovers():
     assert limiter.allow("client", now=11)
     assert not limiter.allow("client", now=12)
     assert not limiter.allow("client", now=16)
-    # Requests remain in the 60-second sliding window after the temporary block.
     assert limiter.allow("client", now=72)
 
 
@@ -25,3 +24,70 @@ def test_clients_have_independent_buckets():
     assert limiter.allow("first", now=1)
     assert limiter.allow("second", now=1)
     assert not limiter.allow("first", now=2)
+
+
+def test_persistent_limiter_survives_new_instance(tmp_path):
+    path = tmp_path / "nova.sqlite3"
+    first = PersistentRateLimiter(lambda: path, requests_per_minute=1, block_seconds=5)
+    assert first.allow("client", now=100)
+    assert not first.allow("client", now=101)
+    restarted = PersistentRateLimiter(lambda: path, requests_per_minute=1, block_seconds=5)
+    assert not restarted.allow("client", now=102)
+    assert not restarted.allow("client", now=106)  # sliding window is still full
+    assert restarted.allow("client", now=161)
+
+
+def test_persistent_failed_auth_budget_survives_restart(tmp_path):
+    path = tmp_path / "nova.sqlite3"
+    first = PersistentRateLimiter(lambda: path, failed_auth_attempts=2, block_seconds=5)
+    first.record_auth_failure("client", now=100)
+    first.record_auth_failure("client", now=101)
+    restarted = PersistentRateLimiter(lambda: path, failed_auth_attempts=2, block_seconds=5)
+    assert restarted.auth_blocked("client", now=102)
+    assert not restarted.auth_blocked("client", now=106)
+
+
+def test_persistent_limiter_does_not_store_raw_client_key(tmp_path):
+    path = tmp_path / "nova.sqlite3"
+    limiter = PersistentRateLimiter(lambda: path)
+    limiter.allow("192.0.2.1", now=100)
+    import sqlite3
+    con = sqlite3.connect(path)
+    try:
+        rows = con.execute("SELECT DISTINCT bucket_key FROM nova_rate_events").fetchall()
+    finally:
+        con.close()
+    assert rows
+    assert "192.0.2.1" not in rows[0][0]
+
+
+
+def test_persistent_limiter_shares_request_budget_across_instances(tmp_path):
+    from nova.security import PersistentRateLimiter
+
+    database = tmp_path / "nova.sqlite3"
+    first = PersistentRateLimiter(database, requests_per_minute=1, block_seconds=5)
+    second = PersistentRateLimiter(database, requests_per_minute=1, block_seconds=5)
+    assert first.allow("client", now=100)
+    assert not second.allow("client", now=101)
+    assert second.allow("client", now=166)
+
+
+def test_persistent_failed_auth_budget_survives_new_instance(tmp_path):
+    from nova.security import PersistentRateLimiter
+
+    database = tmp_path / "nova.sqlite3"
+    first = PersistentRateLimiter(database, failed_auth_attempts=2, block_seconds=5)
+    second = PersistentRateLimiter(database, failed_auth_attempts=2, block_seconds=5)
+    first.record_auth_failure("client", now=100)
+    second.record_auth_failure("client", now=101)
+    assert first.auth_blocked("client", now=102)
+    assert not second.auth_blocked("client", now=106)
+
+
+def test_persistent_limiter_rejects_invalid_limits(tmp_path):
+    import pytest
+    from nova.security import PersistentRateLimiter
+
+    with pytest.raises(ValueError):
+        PersistentRateLimiter(tmp_path / "nova.sqlite3", requests_per_minute=0)
