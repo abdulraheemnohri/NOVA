@@ -6,6 +6,7 @@ explicitly scoped to specialized tasks and are never silently selected as fallba
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import importlib.util
 import os
 import shutil
@@ -50,6 +51,17 @@ def _module_available(name: str) -> bool:
         return importlib.util.find_spec(name) is not None
     except (ImportError, ValueError, ModuleNotFoundError):
         return False
+
+
+
+def _distribution_version(*names: str) -> str | None:
+    """Return installed distribution version without importing or executing runtime code."""
+    for name in names:
+        try:
+            return importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+    return None
 
 
 def runtime_inventory() -> dict[str, Any]:
@@ -115,6 +127,7 @@ def runtime_inventory() -> dict[str, Any]:
             "id": "onnx-runtime", "name": "ONNX Runtime",
             "purpose": "Specialized ONNX models: embeddings, OCR, classifiers and compatible audio models",
             "role": "specialized_model_runtime", "detected": onnx_available,
+            "version": _distribution_version("onnxruntime") if onnx_available else None,
             "configured": settings.onnxruntime_enabled,
             "status": "ready" if onnx_available else "not_available",
             "policy": "Inventory only until a task-specific model adapter is enabled.",
@@ -123,6 +136,7 @@ def runtime_inventory() -> dict[str, Any]:
             "id": "tflite-runtime", "name": "TensorFlow Lite / LiteRT Python packages",
             "purpose": "Compatible edge vision/audio/classification models",
             "role": "specialized_model_runtime", "detected": tflite_available,
+            "version": _distribution_version("tflite-runtime", "ai-edge-litert") if tflite_available else None,
             "configured": True, "status": "ready" if tflite_available else "not_available",
             "policy": "Inventory only; no silent chat-runtime substitution.",
         },
@@ -138,6 +152,7 @@ def runtime_inventory() -> dict[str, Any]:
             "id": "transformers", "name": "Hugging Face Transformers",
             "purpose": "Future specialized local pipelines where supported",
             "role": "specialized_model_runtime", "detected": transformers_available,
+            "version": _distribution_version("transformers") if transformers_available else None,
             "configured": False,
             "status": "detected_not_enabled" if transformers_available else "not_available",
             "policy": "Not loaded automatically; no remote inference.",
