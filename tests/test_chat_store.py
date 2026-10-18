@@ -218,3 +218,67 @@ def test_chat_zip_backup_contains_transcript_and_original_attachment(monkeypatch
             payload = json.loads(archive.read("conversation.json"))
             assert payload["conversation"]["title"] == "Zip backup"
             assert payload["messages"][0]["content"] == "Export all of this"
+
+
+def test_chat_zip_backup_can_be_restored_with_verified_attachments(monkeypatch, tmp_path):
+    import zipfile
+    from io import BytesIO
+
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        original = client.post("/api/chat/conversations", json={"title": "Round trip"}).json()
+        cid = original["id"]
+        uploaded = client.post(
+            f"/api/chat/conversations/{cid}/attachments",
+            files={"file": ("roundtrip.txt", b"verified backup data", "text/plain")},
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        attachment = uploaded.json()
+        saved = client.post(
+            f"/api/chat/conversations/{cid}/messages",
+            json={"role": "user", "content": "Restore this conversation", "attachments": [attachment["id"]]},
+        )
+        assert saved.status_code == 201
+
+        backup = client.get(f"/api/chat/conversations/{cid}/export?format=zip")
+        assert backup.status_code == 200
+        restored_response = client.post(
+            "/api/chat/import",
+            files={"file": ("backup.zip", backup.content, "application/zip")},
+        )
+        assert restored_response.status_code == 201, restored_response.text
+        restored = restored_response.json()
+        assert restored["id"] != cid
+        assert restored["title"] == "Round trip"
+        assert restored["messages_restored"] == 1
+        assert restored["attachments_restored"] == 1
+
+        restored_messages = client.get(f"/api/chat/conversations/{restored['id']}/messages").json()["messages"]
+        assert restored_messages[0]["content"] == "Restore this conversation"
+        new_attachment_id = restored_messages[0]["attachments"][0]
+        downloaded = client.get(
+            f"/api/chat/conversations/{restored['id']}/attachments/{new_attachment_id}/download"
+        )
+        assert downloaded.status_code == 200
+        assert downloaded.content == b"verified backup data"
+
+
+def test_chat_import_rejects_invalid_zip_and_path_traversal(monkeypatch, tmp_path):
+    from io import BytesIO
+    import zipfile
+
+    _configure_temp_store(monkeypatch, tmp_path)
+    malicious = BytesIO()
+    with zipfile.ZipFile(malicious, "w") as archive:
+        archive.writestr("../outside.txt", b"not allowed")
+        archive.writestr("conversation.json", b"{}")
+    with _client() as client:
+        invalid = client.post("/api/chat/import", files={"file": ("bad.zip", b"not a zip", "application/zip")})
+        assert invalid.status_code == 422
+        traversal = client.post(
+            "/api/chat/import",
+            files={"file": ("bad.zip", malicious.getvalue(), "application/zip")},
+        )
+        assert traversal.status_code == 422
+        assert client.get("/api/chat/conversations").json()["conversations"] == []
+        assert not (tmp_path / "outside.txt").exists()
