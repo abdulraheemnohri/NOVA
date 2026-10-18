@@ -1,7 +1,10 @@
 import json
 
+import pytest
+from pydantic import ValidationError
+
 from nova import litert
-from nova.config import settings
+from nova.config import Settings, settings
 
 
 class _Response:
@@ -35,8 +38,7 @@ def test_chat_uses_configured_bounded_timeout(monkeypatch):
     assert payload["max_tokens"] == 64
 
 
-def test_chat_timeout_setting_is_bounded():
-    field = settings.model_fields["litert_chat_timeout_seconds"]
-    assert field.default == 120
-    assert field.metadata[0].ge == 5
-    assert field.metadata[0].le == 600
+@pytest.mark.parametrize("timeout", [4, 601])
+def test_chat_timeout_setting_rejects_out_of_range_values(timeout):
+    with pytest.raises(ValidationError):
+        Settings(litert_chat_timeout_seconds=timeout)
