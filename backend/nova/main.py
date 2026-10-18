@@ -28,7 +28,7 @@ from nova.diagnostics import router as diagnostics_router
 from nova.runtimes import router as runtimes_router
 from nova.scheduler import router as scheduler_router, start_worker, stop_worker, initialize_scheduler_config
 from nova.system_monitor import router as system_router
-from nova.settings_preferences import router as settings_preferences_router
+from nova.settings_preferences import get_preferences, router as settings_preferences_router
 from nova.security import PersistentRateLimiter
 from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router
@@ -282,7 +282,8 @@ def api_chat(req: ChatRequest):
     })
     try:
         model_id = active_model_id()
-        answer = chat(prompt, req.max_tokens, model_id=model_id)
+        preferences = get_preferences()
+        answer = chat(prompt, req.max_tokens, model_id=model_id, temperature=preferences["chat_temperature"])
     except LiteRTError as exc:
         _audit("chat.failure", {"error": str(exc)})
         raise HTTPException(503, str(exc)) from exc
