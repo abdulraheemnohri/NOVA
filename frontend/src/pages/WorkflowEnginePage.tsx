@@ -1,4 +1,4 @@
-import {useCallback,useEffect,useState,type FormEvent} from "react";
+import {useCallback,useEffect,useRef,useState,type FormEvent} from "react";
 import {Activity,Plus,Play,RefreshCw,ShieldCheck,Square,Workflow} from "lucide-react";
 import {PageHeader,StatusBadge} from "../components/ui";
 
@@ -14,6 +14,8 @@ const inputClass="w-full rounded-lg border border-white/10 bg-slate-950/70 px-3 
 const buttonClass="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-200 hover:bg-white/5 disabled:opacity-40";
 
 export default function WorkflowEnginePage({apiFetch,onError}:{apiFetch:(url:string,init?:RequestInit)=>Promise<Response>;onError:(s:string)=>void}){
+ const apiFetchRef=useRef(apiFetch);
+ apiFetchRef.current=apiFetch;
  const [definitions,setDefinitions]=useState<Definition[]>([]);
  const [runs,setRuns]=useState<Run[]>([]);
  const [name,setName]=useState("");
@@ -26,7 +28,7 @@ export default function WorkflowEnginePage({apiFetch,onError}:{apiFetch:(url:str
  const refresh=useCallback(async()=>{
   setLoading(true);
   try{
-   const [wr,rr]=await Promise.all([apiFetch(API),apiFetch(API+"/runs?limit=50")]);
+   const [wr,rr]=await Promise.all([apiFetchRef.current(API),apiFetchRef.current(API+"/runs?limit=50")]);
    const wd=await wr.json(),rd=await rr.json();
    if(!wr.ok)throw Error(wd.detail||"Could not load workflows");
    if(!rr.ok)throw Error(rd.detail||"Could not load workflow runs");
@@ -34,7 +36,7 @@ export default function WorkflowEnginePage({apiFetch,onError}:{apiFetch:(url:str
    setRuns(rd.runs||[]);
   }catch(e){onError(e instanceof Error?e.message:"Workflow engine unavailable")}
   finally{setLoading(false)}
- },[apiFetch,onError]);
+ },[onError]);
  useEffect(()=>{void refresh()},[refresh]);
  useEffect(()=>{
   if(!hasRunning)return;
@@ -48,7 +50,7 @@ export default function WorkflowEnginePage({apiFetch,onError}:{apiFetch:(url:str
   event.preventDefault();setSaving(true);
   try{
    const payload={name,steps:drafts.map(step=>({tool:step.tool,when:step.when,input:step.tool==="calculator"?{expression:step.value}:{query:step.value}}))};
-   const response=await apiFetch(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+   const response=await apiFetchRef.current(API,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
    const data=await response.json();
    if(!response.ok)throw Error(data.detail||"Could not save workflow");
    setName("");setDrafts([{tool:"calculator",value:"1 + 1",when:"always"}]);
@@ -59,7 +61,7 @@ export default function WorkflowEnginePage({apiFetch,onError}:{apiFetch:(url:str
  async function run(id:string){
   setRunning(id);
   try{
-   const response=await apiFetch(API+"/"+encodeURIComponent(id)+"/run",{method:"POST"});
+   const response=await apiFetchRef.current(API+"/"+encodeURIComponent(id)+"/run",{method:"POST"});
    const data=await response.json();
    if(!response.ok)throw Error(data.detail||"Workflow run failed");
    onError("");await refresh();
@@ -69,7 +71,7 @@ export default function WorkflowEnginePage({apiFetch,onError}:{apiFetch:(url:str
  async function cancel(id:string){
   setCancelling(id);
   try{
-   const response=await apiFetch(API+"/runs/"+encodeURIComponent(id)+"/cancel",{method:"POST"});
+   const response=await apiFetchRef.current(API+"/runs/"+encodeURIComponent(id)+"/cancel",{method:"POST"});
    const data=await response.json();
    if(!response.ok)throw Error(data.detail||"Could not cancel workflow");
    onError("");await refresh();
