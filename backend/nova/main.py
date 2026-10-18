@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import secrets
+import stat
 import hmac
 import sqlite3
 import tempfile
@@ -263,7 +264,7 @@ def _read_relative_file(relative_path: str, *, allow_snapshot: bool = False) -> 
             parent_fd = next_fd
         file_fd = os.open(relative.parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
         try:
-            if not __import__("stat").S_ISREG(os.fstat(file_fd).st_mode):
+            if not stat.S_ISREG(os.fstat(file_fd).st_mode):
                 raise OSError("Workspace read target is not a regular file")
             chunks = []
             while True:
