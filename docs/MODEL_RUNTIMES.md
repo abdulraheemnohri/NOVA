@@ -107,3 +107,10 @@ The authenticated `POST /api/runtimes/operations/preview` endpoint currently sup
 The authenticated `POST /api/runtimes/operations/requests` endpoint creates a persistent, pending request for one of the strictly allowlisted Debian package plans. `GET /api/runtimes/operations/requests` lists recent requests, and `POST /api/runtimes/operations/requests/{request_id}/decision` records an explicit `approve` or `reject` decision. Decisions are atomic, terminal, and audit logged; duplicate decisions return a conflict. Request contents are stored in the configured local NOVA SQLite database.
 
 **Approval is bookkeeping, not execution.** Even an approved request never invokes `sudo`, `apt-get`, a shell, or any package manager. The queue exposes a fixed command for operator review, and the operator remains responsible for reviewing and running it manually. Unsupported runtime IDs are rejected; arbitrary package names or commands cannot be submitted.
+
+
+## Restricted package installation execution
+
+The execution endpoint is disabled unless the backend environment explicitly sets `NOVA_RUNTIME_INSTALL_EXECUTION_ENABLED=true`. Keep this disabled on ordinary deployments. Enabling it permits the backend process to invoke the system package manager, so it must only be considered in a dedicated, isolated local deployment after reviewing the threat model; do not run the entire NOVA web/API service as root just to enable this feature.
+
+Execution requires a previously approved request plus a second confirmation that exactly matches its request ID. The endpoint revalidates the stored package list against the runtime allowlist, uses an argument array with `shell=False`, invokes only the resolved `apt-get` binary, has a 600-second timeout, uses a restricted environment, and permits at most one execution record per request. The execution log records status, exit code, bounded output, timestamps, and recovery guidance. A timeout or failure does not trigger automatic package removal or rollback; inspect the logs and package state manually. The execution path has not been exercised against a real system package manager as part of repository editing.
