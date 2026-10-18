@@ -9,11 +9,12 @@ from nova.audit import append_audit
 from nova.config import settings
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-DEFAULT_PREFERENCES = {"chat_max_tokens": 512, "auto_refresh_seconds": 0, "confirm_model_selection": True}
+DEFAULT_PREFERENCES = {"chat_max_tokens": 512, "chat_temperature": 0.2, "auto_refresh_seconds": 0, "confirm_model_selection": True}
 
 class PreferencesUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     chat_max_tokens: int = Field(default=512, ge=64, le=4096)
+    chat_temperature: float = Field(default=0.2, ge=0.0, le=1.5)
     auto_refresh_seconds: int = Field(default=0, ge=0, le=300)
     confirm_model_selection: bool = True
 
@@ -31,13 +32,14 @@ def get_preferences() -> dict[str, Any]:
     try:
         rows = {r["key"]: r["value"] for r in con.execute(
             """SELECT key,value FROM nova_settings WHERE key IN
-            ('ui_chat_max_tokens','ui_auto_refresh_seconds','ui_confirm_model_selection')"""
+            ('ui_chat_max_tokens','ui_chat_temperature','ui_auto_refresh_seconds','ui_confirm_model_selection')"""
         ).fetchall()}
     finally:
         con.close()
     result = dict(DEFAULT_PREFERENCES)
     try:
         if "ui_chat_max_tokens" in rows: result["chat_max_tokens"] = int(rows["ui_chat_max_tokens"])
+        if "ui_chat_temperature" in rows: result["chat_temperature"] = float(rows["ui_chat_temperature"])
         if "ui_auto_refresh_seconds" in rows: result["auto_refresh_seconds"] = int(rows["ui_auto_refresh_seconds"])
         if "ui_confirm_model_selection" in rows: result["confirm_model_selection"] = rows["ui_confirm_model_selection"] == "true"
     except (ValueError, TypeError):
@@ -52,6 +54,7 @@ def read_preferences() -> dict[str, Any]:
 def update_preferences(req: PreferencesUpdate) -> dict[str, Any]:
     values = {
         "ui_chat_max_tokens": str(req.chat_max_tokens),
+        "ui_chat_temperature": str(req.chat_temperature),
         "ui_auto_refresh_seconds": str(req.auto_refresh_seconds),
         "ui_confirm_model_selection": "true" if req.confirm_model_selection else "false",
     }
@@ -68,6 +71,7 @@ def update_preferences(req: PreferencesUpdate) -> dict[str, Any]:
         con.close()
     append_audit(settings.audit_path, "settings.preferences.updated", {
         "chat_max_tokens": req.chat_max_tokens,
+        "chat_temperature": req.chat_temperature,
         "auto_refresh_seconds": req.auto_refresh_seconds,
         "confirm_model_selection": req.confirm_model_selection,
     })
