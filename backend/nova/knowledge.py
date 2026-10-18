@@ -437,6 +437,62 @@ def search_knowledge(req:SearchRequest):
             "Keyword retrieval only; confidence scores are lexical overlap, not calibrated probabilities. "
             "If embeddings are enabled but unavailable, check the local model path and optional dependencies.")
     return {"query":req.query,"method":method,"results":results[:req.limit],"note":note}
+
+class CitationReference(BaseModel):
+    chunk_id: str = Field(min_length=1, max_length=80)
+    quote: str = Field(min_length=1, max_length=1000)
+
+
+class CitationVerificationRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=1000)
+    citations: list[CitationReference] = Field(min_length=1, max_length=20)
+
+
+@router.post("/citations/verify")
+def verify_citations(req: CitationVerificationRequest):
+    """Verify citation identity and exact source quotes; this does not prove claim entailment."""
+    con = _connect()
+    try:
+        verified = []
+        for citation in req.citations:
+            row = con.execute(
+                "SELECT c.id AS chunk_id,c.chunk_index,c.content,d.id AS document_id,d.source_name "
+                "FROM document_chunks c JOIN documents d ON d.id=c.document_id WHERE c.id=?",
+                (citation.chunk_id,),
+            ).fetchone()
+            if row is None:
+                verified.append({
+                    "chunk_id": citation.chunk_id, "source_exists": False,
+                    "quote_verified": False, "grounded": False,
+                    "reason": "Unknown chunk ID; it does not reference an imported local source.",
+                })
+                continue
+            normalize = lambda value: re.sub(r"\\s+", " ", value).strip()
+            quote_verified = normalize(citation.quote) in normalize(row["content"])
+            verified.append({
+                "chunk_id": row["chunk_id"], "document_id": row["document_id"],
+                "source": row["source_name"], "chunk_index": row["chunk_index"],
+                "source_exists": True, "quote_verified": quote_verified,
+                "grounded": quote_verified,
+                "reason": ("Exact quote found in the imported source chunk."
+                           if quote_verified else "Quoted text does not exactly match this source chunk."),
+            })
+    finally:
+        con.close()
+    result = {
+        "query": req.query,
+        "verified": verified,
+        "all_grounded": all(item["grounded"] for item in verified),
+        "verification_scope": "Source identity and exact quote only; semantic entailment is not verified.",
+    }
+    _audit("citations.verified", {
+        "citation_count": len(verified),
+        "grounded_count": sum(1 for item in verified if item["grounded"]),
+        "unknown_source_count": sum(1 for item in verified if not item["source_exists"]),
+    })
+    return result
+
+
 @router.get("/memory")
 def list_memories():
     con=_connect()
