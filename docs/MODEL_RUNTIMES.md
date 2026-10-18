@@ -93,3 +93,7 @@ A file extension is not proof of compatibility or safety. Downloaded artifacts a
 ## Runtime inventory and versions
 
 The **Runtimes** page reports local executable/model presence and LiteRT-LM endpoint reachability. For optional Python runtimes, it also displays the installed package version when distribution metadata is available; version discovery does not import or execute the model runtime. Detection is not an installation manager: NOVA does not install, update, start, or uninstall runtimes automatically. Install and update optional packages using the documented upstream instructions for your OS, then refresh the inventory. No discovered runtime is substituted for LiteRT-LM chat inference.
+
+## Runtime setup preflight
+
+The authenticated read-only `GET /api/runtimes/preflight` endpoint summarizes the current inventory into actionable setup checks. It marks LiteRT-LM reachability as the primary-chat readiness gate and offers optional next steps for speech, OCR, FFmpeg, ONNX and edge runtimes. The Runtimes page displays these checks. Preflight never installs packages, downloads models, executes runtime binaries, changes settings or switches the primary chat runtime.
