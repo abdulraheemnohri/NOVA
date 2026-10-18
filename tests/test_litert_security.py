@@ -41,3 +41,18 @@ def test_bounded_reader_accepts_payload_within_limit():
 def test_bounded_reader_rejects_oversized_payload():
     with pytest.raises(LiteRTError, match="oversized"):
         _read_bounded(io.BytesIO(b"12345"), 4)
+
+
+def test_redirect_handler_refuses_redirects():
+    from urllib.request import Request
+    from nova.litert import _RejectRedirects
+
+    handler = _RejectRedirects()
+    assert handler.redirect_request(
+        Request("http://127.0.0.1:9379/v1/models"),
+        io.BytesIO(b""),
+        302,
+        "Found",
+        {},
+        "https://example.com/collect",
+    ) is None
