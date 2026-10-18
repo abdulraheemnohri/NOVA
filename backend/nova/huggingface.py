@@ -116,7 +116,8 @@ def _safe_filename(filename: str) -> tuple[str, str]:
 
 @router.get("/status")
 def huggingface_status():
-    return {"provider": "Hugging Face Hub", "enabled": True, "token_configured": bool(_token()),
+    features = get_feature_settings()
+    return {"provider": "Hugging Face Hub", "enabled": features["model_hub_enabled"], "downloads_enabled": features["model_downloads_enabled"], "token_configured": bool(_token()),
             "token_source": "NOVA_HUGGINGFACE_TOKEN environment variable",
             "cache_dir": str(settings.huggingface_cache_dir),
             "max_download_bytes": settings.huggingface_max_download_bytes,
@@ -125,6 +126,8 @@ def huggingface_status():
 
 @router.get("/search")
 def search_huggingface(q: str = Query(min_length=1, max_length=_MAX_QUERY), limit: int = Query(default=_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT), task: str | None = Query(default=None, max_length=60)):
+    if not get_feature_settings()["model_hub_enabled"]:
+        raise HTTPException(403, "Hugging Face model hub is disabled in Runtime Features settings.")
     query = q.strip()
     if not query:
         raise HTTPException(422, "Enter a search query.")
@@ -156,6 +159,8 @@ def search_huggingface(q: str = Query(min_length=1, max_length=_MAX_QUERY), limi
 
 @router.get("/files")
 def list_huggingface_files(repo_id: str = Query(min_length=3, max_length=200), revision: str = Query(default="main", min_length=1, max_length=120)):
+    if not get_feature_settings()["model_hub_enabled"]:
+        raise HTTPException(403, "Hugging Face model hub is disabled in Runtime Features settings.")
     repo = _validate_repo(repo_id)
     if revision.startswith("/") or "\\" in revision or any(part in {"", ".", ".."} for part in revision.split("/")):
         raise HTTPException(422, "Revision must be a branch, tag, or commit identifier.")
@@ -178,6 +183,9 @@ def list_huggingface_files(repo_id: str = Query(min_length=3, max_length=200), r
 
 @router.post("/download")
 def download_huggingface_artifact(req: DownloadRequest):
+    features = get_feature_settings()
+    if not features["model_hub_enabled"] or not features["model_downloads_enabled"]:
+        raise HTTPException(403, "Model downloads are disabled in Runtime Features settings.")
     repo = _validate_repo(req.repo_id)
     filename, extension = _safe_filename(req.filename)
     revision = req.revision.strip()
