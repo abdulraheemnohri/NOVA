@@ -73,14 +73,14 @@ def health() -> dict:
         }
 
 
-def chat(message: str, max_tokens: int = 512, model_id: str | None = None) -> str:
+def chat(message: str, max_tokens: int = 512, model_id: str | None = None, temperature: float = 0.2) -> str:
     base = _base()
     body = json.dumps(
         {
             "model": model_id or settings.litert_model,
             "messages": [{"role": "user", "content": message}],
             "max_tokens": max(1, min(max_tokens, 4096)),
-            "temperature": 0.2,
+            "temperature": max(0.0, min(float(temperature), 1.5)),
         }
     ).encode()
     request = Request(
