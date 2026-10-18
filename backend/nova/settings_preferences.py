@@ -223,6 +223,8 @@ def read_live_status() -> dict[str, Any]:
     from nova.agent_tools import catalog as tool_catalog
     from nova.self_improvement import list_skills, list_tool_proposals
     from nova.litert import health as litert_health
+    from nova.model_manager import active_model_id
+    active_model_for_status = active_model_id
 
     valid, event_count = verify_audit(settings.audit_path)
     try:
@@ -238,6 +240,36 @@ def read_live_status() -> dict[str, Any]:
     runtime_items = inventory.get("runtimes", [])
     return {
         "collected_at": datetime.now(timezone.utc).isoformat(),
+        "configuration": {
+            "environment": settings.env,
+            "workspace_path": str(settings.workspace),
+            "database_path": str(settings.database_path),
+            "audit_log_path": str(settings.audit_path),
+            "api_token_file": str(settings.api_token_file),
+            "chat_runtime": "LiteRT-LM only",
+            "LiteRT_endpoint": settings.litert_base_url,
+            "configured_model": active_model_for_status(),
+            "chat_timeout_seconds": settings.litert_chat_timeout_seconds,
+            "write_approval_required": settings.require_approval_for_writes,
+            "scheduler_enabled": settings.scheduler_enabled,
+            "scheduler_interval_seconds": settings.scheduler_interval_seconds,
+            "semantic_retrieval_environment_default": settings.semantic_retrieval_enabled,
+            "onnx_runtime_environment_default": settings.onnxruntime_enabled,
+            "whisper_cli_path": settings.whisper_cli_path or "auto-detect",
+            "whisper_model_path": str(settings.whisper_model_path),
+            "whisper_timeout_seconds": settings.whisper_timeout_seconds,
+            "ffmpeg_cli_path": settings.ffmpeg_cli_path or "auto-detect",
+            "piper_cli_path": settings.piper_cli_path or "auto-detect",
+            "piper_model_path": str(settings.piper_model_path),
+            "tesseract_cli_path": settings.tesseract_cli_path or "auto-detect",
+            "pdf_ocr_enabled": settings.pdf_ocr_enabled,
+            "pdf_ocr_max_pages": settings.pdf_ocr_max_pages,
+            "pdf_renderer_cli_path": settings.pdf_renderer_cli_path or "not configured",
+            "huggingface_cache_dir": str(settings.huggingface_cache_dir),
+            "huggingface_max_download_bytes": get_feature_settings()["max_model_download_bytes"],
+            "huggingface_token_configured": bool(settings.huggingface_token or __import__("os").environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()),
+            "secrets": "Values redacted; configure secrets in the local environment or protected token files.",
+        },
         "runtime": {
             "primary": inventory.get("primary_chat_runtime", "LiteRT-LM"),
             "chat": litert_health(),
