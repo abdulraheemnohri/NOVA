@@ -121,7 +121,7 @@ def huggingface_status():
     return {"provider": "Hugging Face Hub", "enabled": features["model_hub_enabled"], "downloads_enabled": features["model_downloads_enabled"], "token_configured": bool(_token()),
             "token_source": "NOVA_HUGGINGFACE_TOKEN environment variable",
             "cache_dir": str(settings.huggingface_cache_dir),
-            "max_download_bytes": settings.huggingface_max_download_bytes,
+            "max_download_bytes": features["max_model_download_bytes"],
             "inference_policy": "Hugging Face supplies files/metadata only; chat inference remains LiteRT-LM-only."}
 
 
