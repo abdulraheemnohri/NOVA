@@ -6,7 +6,7 @@ Local-first agent workbench with LiteRT-LM-only chat inference, default-deny too
 
 NOVA is an active engineering project, not yet a feature-complete production release. CI covers the backend tests and frontend tests/build, but target-machine LiteRT-LM compatibility, optional speech binaries/models, and security smoke tests still require validation on the actual host.
 
-## Debian quick start
+## Quick start (Windows, Linux and macOS)
 
 The cross-platform installer discovers all project requirements*.txt files, creates an isolated Python environment, installs backend and optional Python packages plus Web UI dependencies, and installs supported system tools (Node.js/npm, FFmpeg and Tesseract OCR) through the platform package manager. It does not install Docker or download model weights. Use --dry-run to preview changes or --skip-system-runtimes to skip OS packages.
 
