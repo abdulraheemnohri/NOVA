@@ -73,6 +73,49 @@ def _distribution_version(*names: str) -> str | None:
     return None
 
 
+def _validate_whisper_model(path: Path) -> dict[str, Any]:
+    """Check model presence/readability and a conservative size floor without loading weights."""
+    try:
+        if not path.is_file():
+            return {"valid": False, "reason": "model_file_missing", "size_bytes": 0}
+        size = path.stat().st_size
+        if size < 1_000_000:
+            return {"valid": False, "reason": "model_file_too_small", "size_bytes": size}
+        with path.open("rb") as model_file:
+            header = model_file.read(4)
+        if not header:
+            return {"valid": False, "reason": "model_file_unreadable", "size_bytes": size}
+        return {"valid": True, "reason": "file_present_size_plausible", "size_bytes": size}
+    except OSError:
+        return {"valid": False, "reason": "model_file_unreadable", "size_bytes": 0}
+
+
+def _validate_piper_voice(model_path: Path, metadata_path: Path) -> dict[str, Any]:
+    """Validate a Piper ONNX voice and its JSON sidecar without importing/loading ONNX."""
+    try:
+        if not model_path.is_file():
+            return {"valid": False, "reason": "voice_model_missing"}
+        model_size = model_path.stat().st_size
+        if model_size < 1_000_000:
+            return {"valid": False, "reason": "voice_model_too_small", "model_size_bytes": model_size}
+        if not metadata_path.is_file():
+            return {"valid": False, "reason": "voice_metadata_missing", "model_size_bytes": model_size}
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        audio = metadata.get("audio") if isinstance(metadata, dict) else None
+        phoneme_map = metadata.get("phoneme_id_map") if isinstance(metadata, dict) else None
+        sample_rate = audio.get("sample_rate") if isinstance(audio, dict) else (
+            metadata.get("sample_rate") if isinstance(metadata, dict) else None
+        )
+        if not isinstance(sample_rate, int) or sample_rate <= 0:
+            return {"valid": False, "reason": "voice_metadata_invalid_sample_rate", "model_size_bytes": model_size}
+        if not isinstance(phoneme_map, dict) or not phoneme_map:
+            return {"valid": False, "reason": "voice_metadata_invalid_phoneme_map", "model_size_bytes": model_size}
+        return {"valid": True, "reason": "voice_and_metadata_structure_valid",
+                "model_size_bytes": model_size, "sample_rate": sample_rate}
+    except (OSError, json.JSONDecodeError):
+        return {"valid": False, "reason": "voice_metadata_unreadable"}
+
+
 def runtime_inventory() -> dict[str, Any]:
     """Return installed/configured runtime visibility without launching binaries."""
     whisper_cli = _resolve_executable(settings.whisper_cli_path, ("whisper-cli",))
@@ -83,6 +126,8 @@ def runtime_inventory() -> dict[str, Any]:
     whisper_model = settings.whisper_model_path.expanduser()
     piper_model = settings.piper_model_path.expanduser()
     piper_metadata = Path(str(piper_model) + ".json")
+    whisper_validation = _validate_whisper_model(whisper_model)
+    piper_validation = _validate_piper_voice(piper_model, piper_metadata)
     litert = litert_health()
     onnx_available = settings.onnxruntime_enabled and _module_available("onnxruntime")
     tflite_available = _module_available("tflite_runtime") or _module_available("ai_edge_litert")
@@ -118,8 +163,9 @@ def runtime_inventory() -> dict[str, Any]:
             "purpose": "Offline audio transcription / speech-to-text", "role": "speech_to_text",
             "detected": whisper_cli is not None, "executable": whisper_cli,
             "model_path": str(whisper_model), "model_present": whisper_model.is_file(),
+            "model_validation": whisper_validation,
             "configured": bool(settings.whisper_cli_path or whisper_cli),
-            "status": "ready" if whisper_cli and whisper_model.is_file() else "needs_setup",
+            "status": "ready" if whisper_cli and whisper_validation["valid"] else "needs_setup",
             "policy": "Used only by the explicit transcription endpoint.",
         },
         {
@@ -128,8 +174,9 @@ def runtime_inventory() -> dict[str, Any]:
             "detected": piper_cli is not None, "executable": piper_cli,
             "model_path": str(piper_model), "model_present": piper_model.is_file(),
             "model_metadata_present": piper_metadata.is_file(),
+            "model_validation": piper_validation,
             "configured": bool(settings.piper_cli_path or piper_cli),
-            "status": "ready" if piper_cli and piper_model.is_file() and piper_metadata.is_file() else "needs_setup",
+            "status": "ready" if piper_cli and piper_validation["valid"] else "needs_setup",
             "policy": "Used only by the explicit local speech synthesis endpoint."
         },
         {
@@ -215,6 +262,7 @@ def runtime_preflight() -> dict[str, Any]:
         checks.append({
             "runtime_id": runtime["id"], "name": runtime["name"],
             "status": status, "severity": severity, "action": action,
+            "model_validation": runtime.get("model_validation"),
         })
     primary_ready = next((item["status"] == "ready" for item in checks if item["runtime_id"] == "litert-lm"), False)
     return {

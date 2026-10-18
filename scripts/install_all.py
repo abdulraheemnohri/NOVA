@@ -54,22 +54,22 @@ def runtime_install_commands(system: str | None = None) -> list[list[str]]:
                 prefix + ["apt-get", "update"],
                 prefix + ["apt-get", "install", "-y", "python3-venv", "python3-dev",
                           "build-essential", "git", "curl", "ca-certificates", "nodejs",
-                          "npm", "ffmpeg", "tesseract-ocr"],
+                          "npm", "ffmpeg", "tesseract-ocr", "cmake"],
             ]
         if shutil.which("dnf"):
             prefix = [] if hasattr(os, "geteuid") and os.geteuid() == 0 else ["sudo"]
             return [prefix + ["dnf", "install", "-y", "python3-devel", "gcc", "gcc-c++",
                               "make", "git", "curl", "nodejs", "npm", "ffmpeg",
-                              "tesseract"]]
+                              "tesseract", "cmake"]]
         if shutil.which("pacman"):
             prefix = [] if hasattr(os, "geteuid") and os.geteuid() == 0 else ["sudo"]
             return [prefix + ["pacman", "-Sy", "--needed", "--noconfirm", "python",
-                              "python-pip", "nodejs", "npm", "ffmpeg", "tesseract"]]
+                              "python-pip", "nodejs", "npm", "ffmpeg", "tesseract", "cmake"]]
         raise RuntimeError("Unsupported Linux package manager. Install Node.js, FFmpeg, and Tesseract manually.")
     if system == "Darwin":
         if not shutil.which("brew"):
             raise RuntimeError("Homebrew is required to install system runtimes on macOS.")
-        return [["brew", "install", "node", "ffmpeg", "tesseract"]]
+        return [["brew", "install", "node", "ffmpeg", "tesseract", "cmake"]]
     if system == "Windows":
         if not shutil.which("winget"):
             raise RuntimeError("winget is required to install system runtimes on Windows.")
@@ -77,6 +77,8 @@ def runtime_install_commands(system: str | None = None) -> list[list[str]]:
         return [
             ["winget", "install", "--id", "OpenJS.NodeJS.LTS", *common],
             ["winget", "install", "--id", "Gyan.FFmpeg", *common],
+            ["winget", "install", "--id", "Kitware.CMake", *common],
+            ["winget", "install", "--id", "Git.Git", *common],
             ["winget", "install", "--id", "UB-Mannheim.TesseractOCR", *common],
         ]
     raise RuntimeError(f"Unsupported operating system: {system}")
