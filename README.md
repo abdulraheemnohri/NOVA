@@ -60,6 +60,10 @@ The System Monitor includes a best-effort Android profile when NOVA runs in an A
 
 The Settings page persists a small, validated preference set in local SQLite: chat output-token limit, optional dashboard auto-refresh interval, and model-selection confirmation. Security-critical settings remain read-only and environment-controlled. Preference changes are audit-logged. See `docs/API.md` for the settings endpoints.
 
+## Token-aware terminal API helper
+
+Use `bash scripts/nova-api.sh METHOD /api/path [JSON_BODY]` for terminal API calls. The helper reads `data/api.token` automatically, restricts requests to loopback addresses, and avoids placing the bearer token in shell history or process arguments. Examples and input rules are in [Development and Scripts](docs/DEVELOPMENT.md). The Web UI still uses its sign-in token flow.
+
 ## Runtime diagnostics
 
 Open **Diagnostics** in the dashboard or call `GET /api/diagnostics` with the local bearer token. It reports LiteRT-LM endpoint reachability, model IDs returned by the local server, whether the configured model ID appears in that list, CLI presence on `PATH`, host/Python/disk details and audit-chain status. It is read-only: it does not execute shell commands or guess runtime versions, model compatibility, or GPU/NPU support. A model appearing in `/models` is not proof that inference will succeed.
