@@ -29,7 +29,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - SQLite-backed API request rate limiting and a separate failed-authentication budget persist across restarts and are shared by workers using the same database; basic response security headers remain enabled. This is defense in depth, not multi-user RBAC or an edge limiter.
 
 ## Remaining work (not yet complete)
-1. Real target-device smoke tests for whisper.cpp and Piper, plus release-specific LiteRT-LM version reporting and model/accelerator validation.
+1. Real target-device smoke tests for LiteRT-LM inference, Whisper.cpp and Piper; release-specific runtime version reporting and model/accelerator validation. Follow `docs/REAL_DEVICE_TESTING.md` and record results rather than assuming hardware support.
 2. Citation source/quote verification API and local retrieval benchmark evaluation are implemented. The benchmark reports Recall@k and MRR against operator-labeled chunk IDs; semantic claim-entailment checks and large-corpus performance work remain.
 3. Approval-bound task execution adapters and production OS-level sandboxing. Task lifecycle now supports a configurable 1–10 attempt budget and concurrency-safe status transitions; the current scheduler only dispatches due tasks to human review and does not execute tools.
 4. Approval-bound tool execution and production OS-level sandboxing.
@@ -40,7 +40,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 9. Multi-user RBAC, CSRF protections for browser-session deployments, distributed/edge rate-limit enforcement and encrypted sensitive storage.
 10. Multi-agent state machine, critic/verifier, adversarial prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware. The bounded local workflow builder, conditional execution, checkpoints, run history, and cancellation controls are implemented. Skill execution currently has a deliberately small allowlist and does not execute arbitrary generated code.
 
-## Definition of done
+## Release validation entry point\n- [x] Added `docs/REAL_DEVICE_TESTING.md` with Debian/Ubuntu setup, secrets/configuration guidance, LiteRT-LM setup boundaries, model download workflow, offline staging and a real-device smoke-test matrix. The checklist is documentation, not evidence that target hardware tests have already passed.\n\n## Definition of done
 A feature is complete only when API, UI controls, persistence, permission checks, audit events, tests, docs, and offline behavior exist and pass CI. Never claim GPU/NPU or model compatibility without a real target-device test.
 
 - [x] Opt-in GitHub updater with trusted repository checks, validation, rollback on test failure, scheduled checks/install settings, and explicit Linux/systemd reboot control. A process restart is still required when reboot is disabled.
