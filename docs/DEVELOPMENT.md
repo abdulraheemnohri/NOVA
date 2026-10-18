@@ -31,6 +31,7 @@ On Debian/Ubuntu, `bash scripts/setup_debian.sh` installs system prerequisites a
 | `scripts/run_frontend.sh` | Starts Vite bound to loopback by default |
 | `scripts/test.sh` | Runs backend tests and frontend tests when dependencies are installed |
 | `scripts/check.sh` | Compile checks, pytest, pip dependency check, Ruff, frontend tests and production build |
+| `scripts/nova-api.sh` | Calls the loopback API using `data/api.token` automatically; keeps the token out of command arguments and shell history |
 | `scripts/doctor.py` | Read-only dependency, local endpoint and optional-runtime diagnostics; never prints token values |
 | `scripts/check_optional_runtimes.sh` | Reports local CLI/model presence without installing or launching engines |
 | `scripts/package_source.sh` | Builds a source archive while excluding local secrets, model data, virtualenv and caches |
@@ -52,6 +53,16 @@ bash scripts/run_frontend.sh
 ```
 
 Then run `python scripts/doctor.py`, open the UI at `http://127.0.0.1:5173`, and paste the locally generated API token from `data/api.token` into the sign-in UI. Never publish that token or expose the API to a public interface.
+
+For terminal API requests, use the token-aware helper so you do not need to add a bearer token to every command:
+
+```bash
+bash scripts/nova-api.sh GET /api/health
+bash scripts/nova-api.sh GET /api/settings/preferences
+bash scripts/nova-api.sh POST /api/chat '{"message":"Reply with exactly: NOVA_CHAT_OK","max_tokens":64}'
+```
+
+The helper reads `data/api.token` locally, accepts only loopback API base URLs, and never prints the token. You can pass a JSON body as the third argument or use `-` to read the body from standard input. It does not bypass NOVA's authentication or audit-integrity checks.
 
 For backend tests without frontend dependencies, activate `.venv` and run `python -m pytest -q`. For the full local gate run `bash scripts/check.sh`.
 
