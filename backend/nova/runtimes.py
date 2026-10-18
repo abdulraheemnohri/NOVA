@@ -222,6 +222,46 @@ def get_runtime_preflight():
     return runtime_preflight()
 
 
+class RuntimeInstallPreviewRequest(BaseModel):
+    runtime_id: str = Field(min_length=1, max_length=64)
+
+
+# Strictly allowlisted Debian package previews. These commands are displayed only;
+# NOVA never passes them to a shell or runs a package manager.
+_RUNTIME_PACKAGE_PLANS: dict[str, dict[str, Any]] = {
+    "ffmpeg-audio": {
+        "title": "Install FFmpeg",
+        "packages": ["ffmpeg"],
+        "reason": "Required only to normalize non-WAV audio before local transcription.",
+    },
+    "tesseract-ocr": {
+        "title": "Install Tesseract OCR and Pillow",
+        "packages": ["tesseract-ocr", "python3-pil"],
+        "reason": "Enables local image OCR and safe image validation on Debian-based systems.",
+    },
+}
+
+
+@router.post("/operations/preview")
+def preview_runtime_installation(req: RuntimeInstallPreviewRequest):
+    """Return a fixed allowlisted install preview; never execute package commands."""
+    plan = _RUNTIME_PACKAGE_PLANS.get(req.runtime_id)
+    if plan is None:
+        raise HTTPException(422, "No package-manager preview is available for this runtime. Use its documented upstream setup instructions.")
+    packages = list(plan["packages"])
+    return {
+        "runtime_id": req.runtime_id,
+        "title": plan["title"],
+        "platform": "Debian/Ubuntu",
+        "packages": packages,
+        "command": "sudo apt-get install --no-install-recommends " + " ".join(packages),
+        "reason": plan["reason"],
+        "requires_operator_approval": True,
+        "executed": False,
+        "safety": "Preview only. NOVA did not run sudo, apt-get, pip, or any shell command. Review package sources and approve/run the command yourself.",
+    }
+
+
 @router.post("/ocr/extract")
 async def extract_image_text(file: UploadFile = File(...)):
     """Run explicitly requested OCR with a preinstalled local Tesseract binary."""
