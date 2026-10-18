@@ -68,7 +68,7 @@ For backend tests without frontend dependencies, activate `.venv` and run `pytho
 
 ## Optional local engines
 
-Whisper.cpp and Piper are external local executables and require compatible local model/voice files. They are not Python packages and cannot be reliably installed on every CPU/OS through a generic requirements file. Configure their paths in `.env`; run `bash scripts/check_optional_runtimes.sh` to inspect availability. ONNX Runtime can be installed with `python -m pip install -r requirements-optional.txt` when needed. The app's primary chat runtime remains LiteRT-LM; no optional runtime is an automatic chat fallback.
+The Runtimes page provides **Installation command previews** for the supported optional Debian/Ubuntu packages FFmpeg and Tesseract OCR + Pillow. These are display-only allowlisted commands: NOVA never executes package-manager commands, even if a legacy execution flag is set. Copy and review a command, then run it manually if desired. Whisper.cpp and Piper are external local executables and require compatible local model/voice files; they cannot be reliably installed on every CPU/OS through a generic apt command. Configure their paths in `.env`; run `bash scripts/check_optional_runtimes.sh` to inspect availability. ONNX Runtime can be installed with `python -m pip install -r requirements-optional.txt` when needed. The app's primary chat runtime remains LiteRT-LM; no optional runtime is an automatic chat fallback.
 
 ## LiteRT-LM slow-inference timeout
 
