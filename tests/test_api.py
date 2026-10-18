@@ -304,6 +304,9 @@ def test_settings_preferences_reject_out_of_range_and_unknown_values(monkeypatch
             "chat_max_tokens": 512, "chat_temperature": 0.2, "auto_refresh_seconds": 0, "confirm_model_selection": True,
             "disable_security": True,
         }).status_code == 422
+        assert client.put("/api/settings/preferences", json={
+            "chat_max_tokens": 512, "chat_temperature": 1.6, "auto_refresh_seconds": 0, "confirm_model_selection": True,
+        }).status_code == 422
 
 
 def test_chat_retrieves_local_sources_and_marks_context_untrusted(monkeypatch, tmp_path):
