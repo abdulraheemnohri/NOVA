@@ -35,7 +35,10 @@ from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router
 from nova.self_improvement import router as self_improvement_router
 from nova.autonomy import router as autonomy_router
-from nova.workflow_engine import router as workflow_engine_router, recover_interrupted_runs as recover_interrupted_workflow_runs
+from nova.workflow_engine import (
+    recover_interrupted_runs as recover_interrupted_workflow_runs,
+    router as workflow_engine_router,
+)
 from nova.updates import router as updates_router, start_worker as start_update_worker, stop_worker as stop_update_worker
 from nova.whatsapp import router as whatsapp_router
 
@@ -49,7 +52,7 @@ async def lifespan(application: FastAPI):
         token = secrets.token_urlsafe(32)
         fd = os.open(settings.api_token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(token + "\\n")
+            stream.write(token + "\n")
             stream.flush()
             os.fsync(stream.fileno())
     try:
