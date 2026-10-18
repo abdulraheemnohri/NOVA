@@ -26,6 +26,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - API endpoints are under `/api/self/skills` and `/api/self/tools`; the Self-Improvement Lab UI supports creation and review. Skill execution accepts explicit structured steps only, preflights every step, limits runs to five calls to existing calculator/local knowledge-search primitives, persists run history, and emits audit events. Natural-language instructions are not interpreted as executable plans.
 
 ## Newly implemented hardening
+- On startup, approvals left in `consuming` after an interrupted write/rollback are moved to `interrupted`, audit-logged, and excluded from automatic replay; operators must inspect the workspace and retained snapshots because a crash may occur before or after the filesystem side effect.
 - SQLite-backed API request rate limiting and a separate failed-authentication budget persist across restarts and are shared by workers using the same database; basic response security headers remain enabled. This is defense in depth, not multi-user RBAC or an edge limiter.
 
 ## Remaining work (not yet complete)

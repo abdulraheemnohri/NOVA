@@ -62,6 +62,9 @@ async def lifespan(application: FastAPI):
         pass
     con = _db()
     con.close()
+    # A process may stop after a side effect but before recording completion.
+    # Quarantine such approvals instead of making them eligible for replay.
+    _recover_interrupted_approvals()
 
     # Interrupted work is marked for operator review; it is never replayed.
     from nova.autonomy import recover_interrupted_runs
@@ -205,6 +208,37 @@ def _db():
     )
     con.commit()
     return con
+
+
+
+def _recover_interrupted_approvals() -> int:
+    """Quarantine approvals left consuming after a crash; never replay side effects."""
+    con = _db()
+    try:
+        rows = con.execute(
+            "SELECT id,action FROM approvals WHERE status='consuming' ORDER BY created_at"
+        ).fetchall()
+        if not rows:
+            return 0
+        ids = [row["id"] for row in rows]
+        con.executemany(
+            "UPDATE approvals SET status='interrupted' WHERE id=? AND status='consuming'",
+            [(approval_id,) for approval_id in ids],
+        )
+        con.commit()
+    finally:
+        con.close()
+    _audit(
+        "approval.recovery.interrupted",
+        {
+            "count": len(rows),
+            "approval_ids": ids,
+            "actions": sorted({row["action"] for row in rows}),
+            "replay_performed": False,
+            "operator_review_required": True,
+        },
+    )
+    return len(rows)
 
 
 def _audit(event: str, details: dict[str, Any]):

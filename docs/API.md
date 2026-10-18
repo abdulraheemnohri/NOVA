@@ -91,3 +91,8 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - POST /api/citations/verify accepts a query and 1–20 citations, each with a local chunk_id and quoted text.
 - The endpoint verifies that each chunk belongs to an imported local document and that the normalized quote appears verbatim in that chunk. It records an audit event.
 - This is deterministic source/quote validation, not semantic claim-entailment verification. Clients must not treat grounded=true as proof that a broader claim logically follows from the quote.
+
+
+## Interrupted approval recovery
+- Startup changes approvals left in `consuming` to `interrupted` and emits an `approval.recovery.interrupted` audit event.
+- This state is quarantined, not retried automatically: a crash can occur before or after a filesystem change, so inspect the workspace and retained snapshots before taking further action.
