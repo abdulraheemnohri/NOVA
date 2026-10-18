@@ -97,3 +97,7 @@ The **Runtimes** page reports local executable/model presence and LiteRT-LM endp
 ## Runtime setup preflight
 
 The authenticated read-only `GET /api/runtimes/preflight` endpoint summarizes the current inventory into actionable setup checks. It marks LiteRT-LM reachability as the primary-chat readiness gate and offers optional next steps for speech, OCR, FFmpeg, ONNX and edge runtimes. The Runtimes page displays these checks. Preflight never installs packages, downloads models, executes runtime binaries, changes settings or switches the primary chat runtime.
+
+## Runtime operations: package previews
+
+The authenticated `POST /api/runtimes/operations/preview` endpoint currently supports read-only Debian/Ubuntu previews for FFmpeg and Tesseract/Pillow. It accepts runtime IDs from a strict allowlist and returns a fixed package list and command for operator review. Unsupported IDs are rejected. No shell or package manager is invoked, no installation occurs, and the operator must review package sources and execute any approved command manually. Whisper.cpp, Piper, and model runtimes retain their upstream-specific setup instructions.
