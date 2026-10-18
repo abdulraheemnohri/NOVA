@@ -6,6 +6,7 @@ import argparse
 import os
 import platform
 import shutil
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -84,7 +85,7 @@ def runtime_install_commands(system: str | None = None) -> list[list[str]]:
 
 def run(command: Sequence[str], *, dry_run: bool) -> None:
     rendered = subprocess.list2cmdline(list(command)) if platform.system() == "Windows" else " ".join(
-        __import__("shlex").quote(part) for part in command
+        shlex.quote(part) for part in command
     )
     print(f"+ {rendered}", flush=True)
     if not dry_run:
@@ -133,9 +134,7 @@ def install(*, dry_run: bool = False, skip_system_runtimes: bool = False) -> int
         (ROOT / "data" / "workspace").mkdir(parents=True, exist_ok=True)
         (ROOT / "data" / "models").mkdir(parents=True, exist_ok=True)
         if not (ROOT / ".env").exists() and (ROOT / ".env.example").exists():
-            (ROOT / ".env.example").replace(ROOT / ".env") if False else shutil.copy2(
-                ROOT / ".env.example", ROOT / ".env"
-            )
+            shutil.copy2(ROOT / ".env.example", ROOT / ".env")
     print(f"Installer complete. Discovered {len(manifests)} requirements file(s).")
     print("Runtime tools are installed but NOT started automatically.")
     print("LiteRT-LM remains the only chat-inference runtime; Whisper.cpp/Piper still need "
