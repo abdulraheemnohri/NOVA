@@ -12,6 +12,12 @@ The cross-platform installer discovers all project requirements*.txt files, crea
 
 ```bash
 python scripts/install_all.py
+
+# Optional task runtimes, installed only when requested
+python scripts/install_optional_runtimes.py --litert-lm
+python scripts/install_optional_runtimes.py --piper
+# Build whisper.cpp only when you need offline transcription (requires a pinned release tag)
+python scripts/install_optional_runtimes.py --whisper-cpp --whisper-tag v1.7.6
 ```
 
 Start the backend in one terminal and the Web UI in another:
