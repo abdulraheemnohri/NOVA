@@ -425,7 +425,6 @@ async def import_chat_backup(file: UploadFile = File(...)):
                 })
 
             restored_messages: list[tuple[str, str, str, str, str, str]] = []
-            now = _now()
             for item in source_messages:
                 if not isinstance(item, dict) or item.get("role") not in {"user", "assistant", "system"}:
                     raise HTTPException(422, "Backup contains an invalid message.")
@@ -437,7 +436,7 @@ async def import_chat_backup(file: UploadFile = File(...)):
                     raise HTTPException(422, "Backup message references an attachment that is not included.")
                 restored_messages.append((
                     str(uuid.uuid4()), "", item["role"], content,
-                    json.dumps([attachment_map[ref] for ref in old_refs]), now,
+                    json.dumps([attachment_map[ref] for ref in old_refs]), _now(),
                 ))
             conversation_id = str(uuid.uuid4())
             con.execute("INSERT INTO chat_conversations(id,title,archived,created_at,updated_at) VALUES(?,?,?,?,?)",
