@@ -7,6 +7,8 @@ from scripts import install_optional_runtimes as installer
 
 
 def test_litert_and_piper_install_is_opt_in_and_never_starts_a_runtime(monkeypatch) -> None:
+    installer.VENV_PYTHON.parent.mkdir(parents=True, exist_ok=True)
+    installer.VENV_PYTHON.touch()
     commands: list[list[str]] = []
     monkeypatch.setattr(installer, "run", lambda command, **kwargs: commands.append(command))
 
