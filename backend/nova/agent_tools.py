@@ -1,4 +1,4 @@
-import ast,math
+import ast,math,base64,json
 from fastapi import APIRouter,HTTPException
 from pydantic import BaseModel,Field,ConfigDict
 from nova.audit import append_audit
@@ -27,7 +27,7 @@ def calculator(s):
   raise ValueError("Only numeric arithmetic is allowed.")
  return ev(t)
 @router.get("")
-def catalog():return {"tools":[{"name":"calculator","input_schema":{"expression":"string"}},{"name":"knowledge_search","input_schema":{"query":"string"}},{"name":"text_stats","input_schema":{"text":"string"}}],"shell":False,"network":False,"writes":False}
+def catalog():return {"tools":[{"name":"calculator","input_schema":{"expression":"string"}},{"name":"knowledge_search","input_schema":{"query":"string"}},{"name":"text_stats","input_schema":{"text":"string"}},{"name":"json_format","input_schema":{"json":"string"}},{"name":"base64_encode","input_schema":{"text":"string"}},{"name":"base64_decode","input_schema":{"encoded":"string"}}],"shell":False,"network":False,"writes":False}
 @router.post("/execute")
 def execute(req:Call):
  d=evaluate_tool(req.name)
@@ -38,6 +38,24 @@ def execute(req:Call):
    value=req.input.get("text")
    if not isinstance(value,str) or len(value)>10000:raise ValueError("Text must be a string of at most 10000 characters.")
    r={"characters":len(value),"words":len(value.split()),"lines":len(value.splitlines()) if value else 0}
+  elif req.name=="json_format":
+   value=req.input.get("json")
+   if not isinstance(value,str) or len(value)>100000:raise ValueError("JSON must be a string of at most 100000 characters.")
+   try: parsed=json.loads(value)
+   except json.JSONDecodeError as exc: raise ValueError(f"Invalid JSON at line {exc.lineno}, column {exc.colno}.") from exc
+   formatted=json.dumps(parsed,ensure_ascii=False,indent=2)
+   if len(formatted)>200000:raise ValueError("Formatted JSON exceeds output limit.")
+   r={"formatted":formatted,"valid":True}
+  elif req.name=="base64_encode":
+   value=req.input.get("text")
+   if not isinstance(value,str) or len(value)>100000:raise ValueError("Text must be a string of at most 100000 characters.")
+   r={"encoded":base64.b64encode(value.encode("utf-8")).decode("ascii")}
+  elif req.name=="base64_decode":
+   value=req.input.get("encoded")
+   if not isinstance(value,str) or len(value)>140000:raise ValueError("Encoded input must be a string of at most 140000 characters.")
+   try: decoded=base64.b64decode(value,validate=True).decode("utf-8")
+   except (ValueError,UnicodeDecodeError) as exc: raise ValueError("Input must be valid Base64 containing UTF-8 text.") from exc
+   r={"decoded":decoded}
   elif req.name=="knowledge_search":
    q=req.input.get("query")
    if not isinstance(q,str) or not q.strip() or len(q)>1000:raise ValueError("Invalid query.")
