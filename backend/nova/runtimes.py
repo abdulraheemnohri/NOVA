@@ -788,7 +788,7 @@ def _litert_service_status() -> dict[str, Any]:
     command_in_env_file = False
     try:
         command_in_env_file = any(
-            re.match(r"^\\s*NOVA_LITERT_LM_COMMAND\\s*=", line) and not line.lstrip().startswith("#")
+            re.match(r"^\s*NOVA_LITERT_LM_COMMAND\s*=", line) and not line.lstrip().startswith("#")
             for line in env_file.read_text(encoding="utf-8").splitlines()
         )
     except OSError:
@@ -849,20 +849,21 @@ def set_litert_autostart(req: LiteRTAutostartRequest):
         if linger.returncode != 0:
             raise HTTPException(409, "Could not enable user lingering. The unit can still start after login; inspect local loginctl permissions.")
     unit_path = _litert_service_unit_path()
-    unit_text = (
-        "[Unit]\\n"
-        "Description=NOVA LiteRT-LM local inference runtime\\n"
-        "After=network.target\\n\\n"
-        "[Service]\\n"
-        "Type=simple\\n"
-        f"WorkingDirectory={root}\\n"
-        f"ExecStart={python} {launcher}\\n"
-        "Restart=on-failure\\n"
-        "RestartSec=5\\n"
-        "UMask=0077\\n\\n"
-        "[Install]\\n"
-        "WantedBy=default.target\\n"
-    )
+    unit_text = f"""[Unit]
+Description=NOVA LiteRT-LM local inference runtime
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory={root}
+ExecStart={python} {launcher}
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target
+"""
     try:
         unit_path.write_text(unit_text, encoding="utf-8")
         os.chmod(unit_path, 0o600)
