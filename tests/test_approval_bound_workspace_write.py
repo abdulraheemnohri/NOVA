@@ -117,3 +117,38 @@ def test_approval_payload_hash_is_not_recomputed_from_mutable_request(tmp_path, 
         "relative_path": "safe.txt",
         "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
     }
+
+
+def test_interrupted_consuming_approval_is_quarantined_on_recovery(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    approval_id = _approved_write("uncertain.txt", "approved content")
+    con = main._db()
+    try:
+        con.execute("UPDATE approvals SET status='consuming' WHERE id=?", (approval_id,))
+        con.commit()
+    finally:
+        con.close()
+
+    assert main._recover_interrupted_approvals() == 1
+    con = main._db()
+    try:
+        row = con.execute("SELECT status FROM approvals WHERE id=?", (approval_id,)).fetchone()
+    finally:
+        con.close()
+    assert row["status"] == "interrupted"
+    # Re-running recovery is safe and does not turn an interrupted approval
+    # back into an executable/approved state.
+    assert main._recover_interrupted_approvals() == 0
+    assert verify_audit(settings.audit_path)[0] is True
+
+
+def test_recovery_only_changes_consuming_approvals(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    approval_id = _approved_write("keep-approved.txt", "content")
+    assert main._recover_interrupted_approvals() == 0
+    con = main._db()
+    try:
+        row = con.execute("SELECT status FROM approvals WHERE id=?", (approval_id,)).fetchone()
+    finally:
+        con.close()
+    assert row["status"] == "approved"
