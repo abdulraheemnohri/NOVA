@@ -164,3 +164,13 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - `GET /chat/conversations/{conversation_id}/messages` and `POST /chat/conversations/{conversation_id}/messages`: read/save message history with conversation-scoped attachment references.
 - `GET /chat/conversations/{conversation_id}/export?format=json`, `format=markdown`, or `format=zip`: download a portable conversation export. JSON includes a schema version, conversation, messages and attachment metadata. Markdown is human-readable and includes extracted text when available. ZIP includes JSON, Markdown and original attachment files. ZIP exports are limited to 100 attachments and 100 MiB of attachment data; binary data is only included when ZIP is explicitly selected.
 - Export format is restricted to `json`, `markdown`, and `zip`; unknown formats return HTTP 422 and unknown conversation IDs return HTTP 404. Export responses are marked `no-store` and `nosniff`.
+
+
+## Live status and AI capabilities
+
+- `GET /settings/live-status`: returns a live snapshot of LiteRT-LM reachability, optional runtime inventory, audit integrity, registered tool/skill counts, and effective non-secret backend configuration. It never starts runtimes. URL credentials and query strings are redacted; secret values are never returned.
+- `GET /settings/ai-capabilities` and `PUT /settings/ai-capabilities`: persist operator-owned capability toggles in SQLite and audit changes.
+- AI may call only registered safe tools; unknown tools remain denied. Active skills are included as untrusted guidance only when enabled. Model-generated skills are saved as drafts, and generated tool proposals can reference only existing bounded primitives. Generated code is never executed.
+- When enabled, the model can request an installation for supported optional runtimes; this only creates a pending request from a fixed allowlist. A human must approve and explicitly execute it.
+- AI runtime configuration changes are limited to the task-runtime switches `whisper_enabled`, `piper_enabled`, `ocr_enabled`, `onnx_runtime_enabled`, and `local_retrieval_enabled`. Model hub/download permissions, network policy, write approvals, authentication, project configuration, and AI capability settings remain human-only.
+- `ai_project_settings_access` is always returned as `false`; it is not accepted by the update schema. These boundaries are enforced server-side, not merely hidden in the UI.
