@@ -19,7 +19,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from nova.config import settings
-from nova.audit import append_audit
+from nova.audit import append_audit\nfrom nova.settings_preferences import get_feature_settings
 
 router = APIRouter(prefix="/api/models/huggingface", tags=["Hugging Face model hub"])
 _REPO_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,95}/[A-Za-z0-9][A-Za-z0-9._-]{0,95}$")
@@ -195,7 +195,7 @@ def download_huggingface_artifact(req: DownloadRequest):
     lfs = metadata.get("lfs")
     if size is None and isinstance(lfs, dict):
         size = lfs.get("size")
-    limit = min(req.max_bytes or settings.huggingface_max_download_bytes, settings.huggingface_max_download_bytes)
+    limit = min(req.max_bytes or features["max_model_download_bytes"], features["max_model_download_bytes"])
     if isinstance(size, int) and size > limit:
         raise HTTPException(413, f"Artifact size ({size} bytes) exceeds the configured download limit ({limit} bytes).")
 
