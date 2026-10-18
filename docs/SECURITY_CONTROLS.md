@@ -3,7 +3,7 @@
 NOVA applies defense-in-depth controls to its local API:
 
 - Bearer-token authentication and audit-chain fail-closed behavior remain mandatory.
-- A process-local sliding-window request budget limits each client address to 120 API requests per minute by default.
+- A SQLite-backed sliding-window request budget limits each client address to 120 API requests per minute by default. Request and failed-authentication counters survive process restarts and are shared by workers using the same database. Client identifiers are stored as SHA-256 hashes rather than raw addresses.
 - Failed authentication has a separate budget: ten failures within five minutes block that client for one minute.
 - The API does not trust `X-Forwarded-For` or similar headers. The direct peer address is used, preventing callers from spoofing their own rate-limit identity.
 - API responses include basic browser hardening headers and `Cache-Control: no-store`.
