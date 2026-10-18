@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 import json
 import re
 import sqlite3
@@ -12,6 +13,7 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from pypdf import PdfReader
 
 from nova.config import settings
 
@@ -238,12 +240,42 @@ async def upload_attachment(conversation_id: str, file: UploadFile = File(...)):
         with target.open("xb") as stream:
             stream.write(data)
         extracted = ""
+        extraction_note = None
         if extension in TEXT_EXTENSIONS:
             try:
                 extracted = data.decode("utf-8-sig")
             except UnicodeDecodeError:
                 target.unlink(missing_ok=True)
                 raise HTTPException(422, "Text files must use UTF-8 encoding.")
+        elif extension == ".pdf":
+            try:
+                reader = PdfReader(BytesIO(data), strict=False)
+                if reader.is_encrypted:
+                    target.unlink(missing_ok=True)
+                    raise HTTPException(422, "Encrypted PDFs are not supported. Upload an unlocked PDF.")
+                if len(reader.pages) > 200:
+                    target.unlink(missing_ok=True)
+                    raise HTTPException(413, "PDF extraction is limited to 200 pages per file.")
+                chunks: list[str] = []
+                remaining = 200_000
+                for page in reader.pages:
+                    if remaining <= 0:
+                        break
+                    page_text = page.extract_text() or ""
+                    if page_text:
+                        piece = page_text[:remaining]
+                        chunks.append(piece)
+                        remaining -= len(piece)
+                extracted = "\n\n".join(chunks)
+                if not extracted.strip():
+                    extraction_note = "PDF uploaded, but no selectable text was found. Scanned PDFs need OCR, which is not enabled."
+                elif len(extracted) >= 200_000:
+                    extraction_note = "PDF text was truncated to 200,000 characters."
+            except HTTPException:
+                raise
+            except Exception as exc:
+                target.unlink(missing_ok=True)
+                raise HTTPException(422, "Could not read this PDF. Check that it is a valid, uncorrupted PDF.") from exc
         digest = hashlib.sha256(data).hexdigest()
         now = _now()
         con.execute("INSERT INTO chat_uploads(id,conversation_id,original_name,stored_name,content_type,size_bytes,sha256,extracted_text,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -251,9 +283,9 @@ async def upload_attachment(conversation_id: str, file: UploadFile = File(...)):
                      file.content_type or "application/octet-stream", len(data), digest, extracted, now))
         con.commit()
         return {"id": attachment_id, "name": original_name, "content_type": file.content_type or "application/octet-stream",
-                "size_bytes": len(data), "sha256": digest, "text_extracted": bool(extracted),
+                "size_bytes": len(data), "sha256": digest, "text_extracted": bool(extracted.strip()),
                 "extracted_text": extracted[:200000] if extracted else "",
-                "note": "PDF is stored safely but text extraction is not enabled in this build." if extension == ".pdf" else None}
+                "note": extraction_note}
     except Exception:
         con.rollback()
         raise
