@@ -8,10 +8,10 @@ NOVA is an active engineering project, not yet a feature-complete production rel
 
 ## Debian quick start
 
-The setup helper installs system prerequisites, creates a Python virtual environment, installs backend dependencies, and installs the Web UI dependencies. It does not install Docker or download model weights.
+The cross-platform installer discovers all project requirements*.txt files, creates an isolated Python environment, installs backend and optional Python packages plus Web UI dependencies, and installs supported system tools (Node.js/npm, FFmpeg and Tesseract OCR) through the platform package manager. It does not install Docker or download model weights. Use --dry-run to preview changes or --skip-system-runtimes to skip OS packages.
 
 ```bash
-bash scripts/setup_debian.sh
+python scripts/install_all.py
 ```
 
 Start the backend in one terminal and the Web UI in another:
