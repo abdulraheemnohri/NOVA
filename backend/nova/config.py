@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     api_token_file: Path = Path("./data/api.token")
     litert_base_url: str = "http://127.0.0.1:9379/v1"
     litert_model: str = "local-model"
+    # Local inference can be slower on CPU-only devices; keep the timeout bounded
+    # and configurable without exposing it as a browser-editable security setting.
+    litert_chat_timeout_seconds: int = Field(default=120, ge=5, le=600)
     whisper_cli_path: str = ""
     ffmpeg_cli_path: str = ""
     whisper_model_path: Path = Path("./data/models/whisper/ggml-base.bin")
