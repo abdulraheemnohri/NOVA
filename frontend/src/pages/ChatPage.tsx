@@ -9,7 +9,7 @@ const MAX_FILE_BYTES=10*1024*1024;
 const formatSize=(n:number)=>n<1024? n+" B":n<1024*1024?(n/1024).toFixed(1)+" KB":(n/1024/1024).toFixed(1)+" MB";
 function inlineMarkdown(text:string):ReactNode[]{
  const pieces:ReactNode[]=[];const pattern=/(`[^`]+`|\*\*.+?\*\*|\*[^*]+\*)/g;let last=0;let match:RegExpExecArray|null;
- while((match=pattern.exec(text))){if(match.index>last)pieces.push(text.slice(last,match.index));const token=match[0];if(token.startsWith("``"))pieces.push(<code key={match.index} className="rounded bg-black/30 px-1 py-0.5 font-mono text-cyan-100">{token.slice(1,-1)}</code>);else if(token.startsWith("**"))pieces.push(<strong key={match.index}>{token.slice(2,-2)}</strong>);else pieces.push(<em key={match.index}>{token.slice(1,-1)}</em>);last=pattern.lastIndex}
+ while((match=pattern.exec(text))){if(match.index>last)pieces.push(text.slice(last,match.index));const token=match[0];if(token.startsWith("`"))pieces.push(<code key={match.index} className="rounded bg-black/30 px-1 py-0.5 font-mono text-cyan-100">{token.slice(1,-1)}</code>);else if(token.startsWith("**"))pieces.push(<strong key={match.index}>{token.slice(2,-2)}</strong>);else pieces.push(<em key={match.index}>{token.slice(1,-1)}</em>);last=pattern.lastIndex}
  if(last<text.length)pieces.push(text.slice(last));return pieces;
 }
 function MarkdownMessage({content}:{content:string}){
