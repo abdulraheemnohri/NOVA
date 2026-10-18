@@ -29,7 +29,7 @@ from nova.runtimes import router as runtimes_router
 from nova.scheduler import router as scheduler_router, start_worker, stop_worker, initialize_scheduler_config
 from nova.system_monitor import router as system_router
 from nova.settings_preferences import router as settings_preferences_router
-from nova.security import PersistentRateLimiter, PersistentRateLimiter
+from nova.security import PersistentRateLimiter
 from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router
 from nova.self_improvement import router as self_improvement_router
@@ -39,7 +39,7 @@ from nova.updates import router as updates_router, start_worker as start_update_
 from nova.whatsapp import router as whatsapp_router
 
 app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
-app.state.rate_limiter = PersistentRateLimiter()
+app.state.rate_limiter = PersistentRateLimiter(lambda: settings.database_path)
 
 
 @app.middleware("http")
@@ -72,7 +72,7 @@ async def require_local_api_token(request: Request, call_next):
 async def apply_api_security_controls(request: Request, call_next):
     # Use the direct peer address only; never trust caller-supplied forwarding headers.
     client_key = request.client.host if request.client else "unknown"
-    limiter: LocalRateLimiter = request.app.state.rate_limiter
+    limiter: PersistentRateLimiter = request.app.state.rate_limiter
     is_api = request.url.path.startswith("/api/")
     if is_api and (limiter.auth_blocked(client_key) or not limiter.allow(client_key)):
         response = JSONResponse(status_code=429, content={"detail": "API rate limit exceeded; retry shortly."})
