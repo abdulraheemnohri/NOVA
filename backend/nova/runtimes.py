@@ -475,8 +475,11 @@ def execute_approved_runtime_installation(request_id: str, req: RuntimeInstallEx
             status = "succeeded" if result.returncode == 0 else "failed"
         except subprocess.TimeoutExpired as exc:
             exit_code, status = None, "failed"
-            raw = (exc.stdout or b"") + b"\n" + (exc.stderr or b"")
-            output = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw))[-_RUNTIME_INSTALL_OUTPUT_LIMIT:]
+            parts = []
+            for part in (exc.stdout, exc.stderr):
+                if part is not None:
+                    parts.append(part.decode("utf-8", "replace") if isinstance(part, bytes) else str(part))
+            output = "\n".join(parts)[-_RUNTIME_INSTALL_OUTPUT_LIMIT:]
             output += "\nInstallation process exceeded the 600-second timeout and was terminated."
         except OSError as exc:
             exit_code, status, output = None, "failed", "Could not start apt-get: " + type(exc).__name__
