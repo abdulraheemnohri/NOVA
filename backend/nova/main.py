@@ -235,20 +235,85 @@ def _safe_path(relative: str) -> Path:
 
 
 def _atomic_write(target: Path, content: bytes):
-    target.parent.mkdir(parents=True, exist_ok=True)
+    """Atomically replace a workspace file without following swapped path components.
+
+    POSIX uses directory descriptors and O_NOFOLLOW for each component, so a
+    symlink substituted after _safe_path validation cannot redirect the write.
+    Other platforms retain the portable path-based fallback.
+    """
+    root = settings.workspace.resolve()
+    try:
+        relative = target.relative_to(root)
+    except ValueError as exc:
+        raise OSError("Workspace write target is outside the configured root") from exc
+    if not relative.parts or any(part in {"", ".", ".."} for part in relative.parts):
+        raise OSError("Invalid workspace-relative write target")
+
+    if os.name != "posix" or not hasattr(os, "O_NOFOLLOW") or not hasattr(os, "supports_dir_fd") or os.open not in os.supports_dir_fd:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp_name = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", prefix=".nova-write-", dir=target.parent, delete=False
+            ) as stream:
+                temp_name = stream.name
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_name, target)
+        finally:
+            if temp_name and os.path.exists(temp_name):
+                os.unlink(temp_name)
+        return
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    root_fd = os.open(root, directory_flags)
+    parent_fd = root_fd
+    opened_fds = []
     temp_name = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb", prefix=".nova-write-", dir=target.parent, delete=False
-        ) as stream:
-            temp_name = stream.name
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temp_name, target)
+        for part in relative.parts[:-1]:
+            try:
+                next_fd = os.open(part, directory_flags, dir_fd=parent_fd)
+            except FileNotFoundError:
+                try:
+                    os.mkdir(part, mode=0o700, dir_fd=parent_fd)
+                except FileExistsError:
+                    pass
+                next_fd = os.open(part, directory_flags, dir_fd=parent_fd)
+            opened_fds.append(next_fd)
+            parent_fd = next_fd
+
+        leaf = relative.parts[-1]
+        temp_name = f".nova-write-{secrets.token_hex(16)}"
+        file_fd = os.open(
+            temp_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=parent_fd,
+        )
+        try:
+            view = memoryview(content)
+            while view:
+                written = os.write(file_fd, view)
+                if written <= 0:
+                    raise OSError("Short write while saving workspace file")
+                view = view[written:]
+            os.fsync(file_fd)
+        finally:
+            os.close(file_fd)
+        os.replace(temp_name, leaf, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        temp_name = None
+        os.fsync(parent_fd)
     finally:
-        if temp_name and os.path.exists(temp_name):
-            os.unlink(temp_name)
+        if temp_name is not None:
+            try:
+                os.unlink(temp_name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
+        for fd in reversed(opened_fds):
+            os.close(fd)
+        os.close(root_fd)
 
 
 @app.get("/api/health")
