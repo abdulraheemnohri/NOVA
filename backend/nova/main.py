@@ -207,7 +207,7 @@ def _atomic_write(target: Path, content: bytes):
 
 @app.on_event("startup")
 def startup():
-    # A fresh limiter lifecycle per process start; no counters survive restarts.
+    # Recreate the adapter per process; SQLite preserves counters across restarts.
     app.state.rate_limiter = PersistentRateLimiter(lambda: settings.database_path)
     settings.workspace.mkdir(parents=True, exist_ok=True)
     settings.api_token_file.parent.mkdir(parents=True, exist_ok=True)
