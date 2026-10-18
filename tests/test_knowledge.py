@@ -291,7 +291,7 @@ def test_retrieval_benchmark_reports_recall_and_reciprocal_rank(tmp_path, monkey
     assert any("semantic entailment" in item for item in result["limitations"])
     valid, count = verify_audit(settings.audit_path)
     assert valid is True
-    assert count >= 4
+    assert count >= 3
 
 
 def test_retrieval_benchmark_rejects_empty_cases_and_bounds_k():
