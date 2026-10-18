@@ -177,6 +177,51 @@ def list_runtimes():
 
 
 
+def runtime_preflight() -> dict[str, Any]:
+    """Build read-only setup guidance from the current inventory; never install or launch runtimes."""
+    inventory = runtime_inventory()
+    checks = []
+    for runtime in inventory["runtimes"]:
+        status = runtime["status"]
+        if status == "ready":
+            severity, action = "ok", "No action required for the detected capability."
+        elif runtime["id"] == "litert-lm":
+            severity, action = "critical", "Start/configure the local LiteRT-LM service and verify its configured endpoint and model."
+        elif runtime["id"] == "whisper-cpp":
+            severity, action = "recommended", "Install whisper.cpp and place a compatible local GGML .bin model at the configured model path."
+        elif runtime["id"] == "piper-tts":
+            severity, action = "optional", "Install Piper and provide a compatible local .onnx voice plus its .onnx.json metadata sidecar."
+        elif runtime["id"] == "tesseract-ocr":
+            severity, action = "optional", "Install Tesseract and the optional Pillow package if local image OCR is needed."
+        elif runtime["id"] == "ffmpeg-audio":
+            severity, action = "optional", "Install FFmpeg if non-WAV audio normalization is needed."
+        elif runtime["id"] == "onnx-runtime":
+            severity, action = "optional", "Enable ONNX Runtime only for a planned, task-specific adapter; package detection alone is not integration."
+        elif runtime["id"] == "tflite-runtime":
+            severity, action = "optional", "Install a compatible LiteRT/TFLite package only for a planned edge-model adapter."
+        elif runtime["id"] == "llama-cpp":
+            severity, action = "informational", "No action required: llama.cpp is not used for NOVA chat."
+        else:
+            severity, action = "informational", "No action required until a supported task-specific integration is available."
+        checks.append({
+            "runtime_id": runtime["id"], "name": runtime["name"],
+            "status": status, "severity": severity, "action": action,
+        })
+    primary_ready = next((item["status"] == "ready" for item in checks if item["runtime_id"] == "litert-lm"), False)
+    return {
+        "ready": primary_ready,
+        "primary_chat_runtime": inventory["primary_chat_runtime"],
+        "automatic_fallback": False,
+        "checks": checks,
+        "safety": "Read-only preflight. It does not install packages, download models, execute runtime binaries, change settings, or switch the chat runtime.",
+    }
+
+
+@router.get("/preflight")
+def get_runtime_preflight():
+    return runtime_preflight()
+
+
 @router.post("/ocr/extract")
 async def extract_image_text(file: UploadFile = File(...)):
     """Run explicitly requested OCR with a preinstalled local Tesseract binary."""
