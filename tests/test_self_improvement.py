@@ -219,3 +219,64 @@ def test_cancelled_skill_run_cannot_be_resumed(isolated_store):
     with pytest.raises(HTTPException) as error:
         module.resume_skill_run("unknown-skill", "unknown-run")
     assert error.value.status_code == 404
+
+
+def test_skill_step_retries_are_bounded_and_persist_attempt_history(isolated_store, monkeypatch):
+    import nova.self_improvement as module
+    from nova.self_improvement import SkillRunRequest, SkillStep, run_skill
+    created = create_skill(SkillCreate(
+        name="Retry Skill", description="Test bounded retries",
+        instructions="Use only existing safe tools and record attempts.",
+    ))
+    activate_skill(created["id"])
+    original = module.calculator
+    calls = {"count": 0}
+    def flaky(expression):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise ValueError("temporary calculation error")
+        return original(expression)
+    monkeypatch.setattr(module, "calculator", flaky)
+    result = run_skill(created["id"], SkillRunRequest(steps=[
+        SkillStep(tool="calculator", input={"expression": "6 * 7"}, retries=1),
+    ]))
+    assert result["status"] == "succeeded"
+    assert result["results"][0]["result"]["result"] == 42
+    assert len(result["attempts"]) == 2
+    assert [item["status"] for item in result["attempts"]] == ["failed", "succeeded"]
+    history = module.list_skill_runs(created["id"])["runs"][0]
+    assert history["attempts"] == result["attempts"]
+
+
+def test_skill_retry_limit_is_rejected_above_three(isolated_store):
+    from pydantic import ValidationError
+    from nova.self_improvement import SkillStep
+    with pytest.raises(ValidationError):
+        SkillStep(tool="calculator", input={"expression": "1 + 1"}, retries=4)
+
+
+def test_exhausted_retries_preserve_checkpoint_and_attempts_for_resume(isolated_store, monkeypatch):
+    import nova.self_improvement as module
+    from nova.self_improvement import SkillRunRequest, SkillStep, run_skill
+    created = create_skill(SkillCreate(
+        name="Retry Exhaustion", description="Preserve failed attempt history",
+        instructions="Use safe tools only.",
+    ))
+    activate_skill(created["id"])
+    original = module.calculator
+    calls = {"count": 0}
+    def flaky(expression):
+        calls["count"] += 1
+        if calls["count"] in (2, 3):
+            raise ValueError("temporary failure")
+        return original(expression)
+    monkeypatch.setattr(module, "calculator", flaky)
+    with pytest.raises(HTTPException) as error:
+        run_skill(created["id"], SkillRunRequest(steps=[
+            SkillStep(tool="calculator", input={"expression": "8 * 8"}, retries=1),
+        ]))
+    assert error.value.status_code == 422
+    history = module.list_skill_runs(created["id"])["runs"][0]
+    assert history["status"] == "failed"
+    assert history["current_step"] == 0
+    assert [item["status"] for item in history["attempts"]] == ["failed", "failed"]

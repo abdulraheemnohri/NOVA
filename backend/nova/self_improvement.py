@@ -43,6 +43,8 @@ def db():
         con.execute("ALTER TABLE self_skill_runs ADD COLUMN current_step INTEGER NOT NULL DEFAULT 0")
     if "cancel_requested" not in run_columns:
         con.execute("ALTER TABLE self_skill_runs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0")
+    if "attempts_json" not in run_columns:
+        con.execute("ALTER TABLE self_skill_runs ADD COLUMN attempts_json TEXT NOT NULL DEFAULT '[]'")
     con.execute("""CREATE TABLE IF NOT EXISTS self_workflows(
         id TEXT PRIMARY KEY, skill_id TEXT NOT NULL, name TEXT NOT NULL,
         steps_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
@@ -217,6 +219,7 @@ class SkillStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
     tool: str = Field(min_length=1, max_length=60)
     input: dict[str, str] = Field(min_length=1, max_length=1)
+    retries: int = Field(default=0, ge=0, le=3)
 
 
 class SkillRunRequest(BaseModel):
@@ -235,14 +238,14 @@ def _validate_step(step: SkillStep) -> dict:
             calculator(expression)
         except (ValueError, SyntaxError, ZeroDivisionError, OverflowError) as exc:
             raise HTTPException(422, f"Invalid calculator step: {exc}") from exc
-        return {"tool": step.tool, "input": {"expression": expression}}
+        return {"tool": step.tool, "input": {"expression": expression}, "retries": step.retries}
     if step.tool == "knowledge_search":
         if set(step.input) != {"query"}:
             raise HTTPException(422, "Knowledge search step requires exactly the query field.")
         query = step.input["query"].strip()
         if not query or len(query) > 1000:
             raise HTTPException(422, "Knowledge query must contain 1–1000 characters.")
-        return {"tool": step.tool, "input": {"query": query}}
+        return {"tool": step.tool, "input": {"query": query}, "retries": step.retries}
     raise HTTPException(422, "Unsupported skill tool; default deny.")
 
 
@@ -261,6 +264,7 @@ def list_skill_runs(skill_id: str):
             item = dict(row)
             item["steps"] = json.loads(item.pop("steps_json"))
             item["results"] = json.loads(item.pop("results_json"))
+            item["attempts"] = json.loads(item.pop("attempts_json", "[]") or "[]")
             runs.append(item)
         return {"runs": runs}
     finally:
@@ -289,7 +293,7 @@ def resume_skill_run(skill_id: str, run_id: str):
     finally:
         con.close()
     # Revalidate the entire saved plan before continuing from its durable checkpoint.
-    planned = [_validate_step(SkillStep(tool=step["tool"], input=step["input"])) for step in planned_raw]
+    planned = [_validate_step(SkillStep(tool=step["tool"], input=step["input"], retries=step.get("retries", 0))) for step in planned_raw]
     con = db()
     try:
         cur = con.execute(
@@ -327,6 +331,12 @@ def cancel_skill_run(skill_id: str, run_id: str):
 
 
 def _continue_skill_run(skill_id: str, run_id: str, planned: list[dict], results: list, start_index: int, skill_version: int):
+    con = db()
+    try:
+        row = con.execute("SELECT attempts_json FROM self_skill_runs WHERE id=?", (run_id,)).fetchone()
+        attempts = json.loads(row["attempts_json"] or "[]") if row else []
+    finally:
+        con.close()
     try:
         for index in range(start_index, len(planned)):
             step = planned[index]
@@ -337,16 +347,61 @@ def _continue_skill_run(skill_id: str, run_id: str, planned: list[dict], results
                 con.close()
             if run_state is None or run_state["status"] != "running" or run_state["cancel_requested"]:
                 break
-            if step["tool"] == "calculator":
-                result = {"result": calculator(step["input"]["expression"])}
-            else:
-                result = search_knowledge(SearchRequest(query=step["input"]["query"], limit=5))
-            results.append({"tool": step["tool"], "result": result})
-            # Commit each completed step so a process interruption leaves an inspectable checkpoint.
+            last_error = None
+            result = None
+            for attempt_number in range(1, int(step.get("retries", 0)) + 2):
+                attempt = {"step": index + 1, "attempt": attempt_number, "tool": step["tool"], "status": "running"}
+                attempts.append(attempt)
+                con = db()
+                try:
+                    con.execute("UPDATE self_skill_runs SET attempts_json=? WHERE id=? AND status='running'",
+                        (json.dumps(attempts, ensure_ascii=False, default=str), run_id))
+                    con.commit()
+                finally:
+                    con.close()
+                try:
+                    if step["tool"] == "calculator":
+                        result = {"result": calculator(step["input"]["expression"])}
+                    else:
+                        result = search_knowledge(SearchRequest(query=step["input"]["query"], limit=5))
+                    attempt["status"] = "succeeded"
+                    attempt["finished_at"] = now()
+                    last_error = None
+                    con = db()
+                    try:
+                        con.execute("UPDATE self_skill_runs SET attempts_json=? WHERE id=? AND status='running'",
+                            (json.dumps(attempts, ensure_ascii=False, default=str), run_id))
+                        con.commit()
+                    finally:
+                        con.close()
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    attempt["status"] = "failed"
+                    attempt["error"] = str(exc)[:300]
+                    attempt["finished_at"] = now()
+                    con = db()
+                    try:
+                        con.execute("UPDATE self_skill_runs SET attempts_json=? WHERE id=? AND status='running'",
+                            (json.dumps(attempts, ensure_ascii=False, default=str), run_id))
+                        con.commit()
+                    finally:
+                        con.close()
+                    if attempt_number <= int(step.get("retries", 0)):
+                        append_audit(settings.audit_path, "self.skill.step_retry", {
+                            "run_id": run_id, "skill_id": skill_id, "step": index + 1,
+                            "attempt": attempt_number, "error_type": type(exc).__name__,
+                        })
+            if last_error is not None:
+                raise last_error
+            results.append({"tool": step["tool"], "result": result, "attempt_count": sum(
+                1 for attempt in attempts if attempt.get("step") == index + 1
+            )})
             con = db()
             try:
-                con.execute("UPDATE self_skill_runs SET results_json=?,current_step=? WHERE id=? AND status='running'",
-                    (json.dumps(results, ensure_ascii=False, default=str), index + 1, run_id))
+                con.execute("UPDATE self_skill_runs SET results_json=?,current_step=?,attempts_json=? WHERE id=? AND status='running'",
+                    (json.dumps(results, ensure_ascii=False, default=str), index + 1,
+                     json.dumps(attempts, ensure_ascii=False, default=str), run_id))
                 con.commit()
             finally:
                 con.close()
@@ -356,8 +411,9 @@ def _continue_skill_run(skill_id: str, run_id: str, planned: list[dict], results
             state = con.execute("SELECT cancel_requested FROM self_skill_runs WHERE id=?", (run_id,)).fetchone()
             cancelled = bool(state and state["cancel_requested"])
             final_status = "cancelled" if cancelled else "succeeded"
-            con.execute("UPDATE self_skill_runs SET status=?,results_json=?,current_step=?,finished_at=? WHERE id=? AND status='running'",
-                (final_status, json.dumps(results, ensure_ascii=False, default=str), len(results), finished, run_id))
+            con.execute("UPDATE self_skill_runs SET status=?,results_json=?,current_step=?,attempts_json=?,finished_at=? WHERE id=? AND status='running'",
+                (final_status, json.dumps(results, ensure_ascii=False, default=str), len(results),
+                 json.dumps(attempts, ensure_ascii=False, default=str), finished, run_id))
             con.commit()
         finally:
             con.close()
@@ -367,22 +423,25 @@ def _continue_skill_run(skill_id: str, run_id: str, planned: list[dict], results
             append_audit(settings.audit_path, "self.skill.run_succeeded", {
                 "run_id": run_id, "skill_id": skill_id, "skill_version": skill_version,
                 "step_count": len(planned), "tools": [step["tool"] for step in planned],
+                "attempt_count": len(attempts),
             })
         return {"run_id": run_id, "skill_id": skill_id, "status": final_status,
-                "cancelled": cancelled, "current_step": len(results), "results": results}
+                "cancelled": cancelled, "current_step": len(results), "results": results, "attempts": attempts}
     except Exception as exc:
         finished = now()
         con = db()
         try:
-            con.execute("UPDATE self_skill_runs SET status='failed',results_json=?,current_step=?,error=?,finished_at=? WHERE id=? AND status='running'",
-                (json.dumps(results, ensure_ascii=False, default=str), len(results), str(exc)[:500], finished, run_id))
+            con.execute("UPDATE self_skill_runs SET status='failed',results_json=?,current_step=?,attempts_json=?,error=?,finished_at=? WHERE id=? AND status='running'",
+                (json.dumps(results, ensure_ascii=False, default=str), len(results),
+                 json.dumps(attempts, ensure_ascii=False, default=str), str(exc)[:500], finished, run_id))
             con.commit()
         finally:
             con.close()
         append_audit(settings.audit_path, "self.skill.run_failed", {
-            "run_id": run_id, "skill_id": skill_id, "completed_steps": len(results), "error_type": type(exc).__name__,
+            "run_id": run_id, "skill_id": skill_id, "completed_steps": len(results),
+            "attempt_count": len(attempts), "error_type": type(exc).__name__,
         })
-        raise HTTPException(422, "Skill run failed; inspect run history for completed safe steps.") from exc
+        raise HTTPException(422, "Skill run failed; inspect run history for completed safe steps and attempt history.") from exc
 
 
 def recover_interrupted_skill_runs():
