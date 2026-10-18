@@ -122,3 +122,52 @@ This setting controls how long NOVA waits for a single local chat response; it d
 ## Offline notes
 
 The source archive produced by `scripts/package_source.sh` is not a fully offline installer. To install on a disconnected machine, pre-stage compatible Python wheels, npm package cache/lock data, the LiteRT-LM runtime and model, and any optional executable/model assets for the target architecture. Do not bundle `.env`, `data/api.token`, local databases, audit logs or personal workspace data.
+
+
+# Automatic startup after reboot
+
+NOVA does not silently install persistence. On Linux systems using systemd, an operator can explicitly install two **per-user** units to start the API and web UI automatically.
+
+From the repository root, after completing installation:
+
+```bash
+# Install and start both services (starts when this user logs in)
+bash scripts/install_autostart.sh install
+
+# For boot-time start even before interactive login, explicitly enable user lingering
+bash scripts/install_autostart.sh install --enable-linger
+
+# Inspect services
+bash scripts/install_autostart.sh status
+journalctl --user -u nova-backend.service -n 100 --no-pager
+journalctl --user -u nova-frontend.service -n 100 --no-pager
+
+# Remove auto-start (does not delete NOVA data or disable user lingering)
+bash scripts/install_autostart.sh uninstall
+```
+
+The installer writes only `~/.config/systemd/user/nova-backend.service` and `nova-frontend.service`, with restrictive file permissions, then enables those units for the current user. It does not use sudo, alter system-wide services, open firewall ports, or change lingering unless `--enable-linger` is explicitly supplied. The API and UI launchers should remain bound to loopback. Review the script before running it on a managed machine.
+
+Windows and macOS are not yet automated by this script. On those platforms, use the normal launch commands or configure a user-owned startup mechanism manually; do not assume this Linux systemd installer applies.
+
+
+## Command and API quick guide
+
+The **About NOVA** page includes a quick-reference guide for setup, starting/stopping the app, diagnostics, tests, optional runtimes, and API calls. The canonical command reference is this document and the `docs/API.md` endpoint reference.
+
+Common commands from the repository root:
+
+```bash
+python scripts/install_all.py --dry-run
+python scripts/install_all.py
+bash scripts/run_backend.sh
+bash scripts/run_frontend.sh
+python scripts/doctor.py
+bash scripts/check.sh
+bash scripts/nova-api.sh GET /api/health
+bash scripts/nova-api.sh GET /api/settings/preferences
+bash scripts/nova-api.sh GET /openapi.json
+```
+
+Dynamic API configuration currently means that endpoints and capabilities are discoverable from the running instance's OpenAPI document at `/openapi.json`; runtime/security values are environment-controlled via `.env` / `NOVA_*` variables and operator preferences are persisted through `/api/settings/preferences`. The browser settings page intentionally does not let an unauthenticated UI change bind addresses, authentication, tool permissions, or other security boundaries. Restart the backend after changing environment settings. Never put API tokens in frontend source or query strings.
+
