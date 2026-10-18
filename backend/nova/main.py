@@ -8,6 +8,7 @@ import hmac
 import sqlite3
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -34,11 +35,53 @@ from nova.identity import router as identity_router, compose_prompt
 from nova.agent_tools import router as agent_tools_router
 from nova.self_improvement import router as self_improvement_router
 from nova.autonomy import router as autonomy_router
-from nova.workflow_engine import router as workflow_engine_router
+from nova.workflow_engine import router as workflow_engine_router, recover_interrupted_runs as recover_interrupted_workflow_runs
 from nova.updates import router as updates_router, start_worker as start_update_worker, stop_worker as stop_update_worker
 from nova.whatsapp import router as whatsapp_router
 
-app = FastAPI(title="NOVA — Neural Offline Verified Agent", version="0.1.0")
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Initialize persistent services once per process and stop workers on shutdown."""
+    application.state.rate_limiter = PersistentRateLimiter(lambda: settings.database_path)
+    settings.workspace.mkdir(parents=True, exist_ok=True)
+    settings.api_token_file.parent.mkdir(parents=True, exist_ok=True)
+    if not settings.api_token_file.exists():
+        token = secrets.token_urlsafe(32)
+        fd = os.open(settings.api_token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(token + "\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+    try:
+        os.chmod(settings.api_token_file, 0o600)
+    except OSError:
+        pass
+    con = _db()
+    con.close()
+
+    # Interrupted work is marked for operator review; it is never replayed.
+    from nova.autonomy import recover_interrupted_runs
+    from nova.self_improvement import recover_interrupted_skill_runs
+    recover_interrupted_runs()
+    recover_interrupted_skill_runs()
+    recover_interrupted_workflow_runs()
+    initialize_knowledge()
+    initialize_scheduler_config()
+
+    try:
+        start_worker()
+        start_update_worker()
+        yield
+    finally:
+        stop_worker()
+        stop_update_worker()
+
+
+app = FastAPI(
+    title="NOVA — Neural Offline Verified Agent",
+    version="0.1.0",
+    lifespan=lifespan,
+)
 app.state.rate_limiter = PersistentRateLimiter(lambda: settings.database_path)
 
 
@@ -203,42 +246,6 @@ def _atomic_write(target: Path, content: bytes):
     finally:
         if temp_name and os.path.exists(temp_name):
             os.unlink(temp_name)
-
-
-@app.on_event("startup")
-def startup():
-    # Recreate the adapter per process; SQLite preserves counters across restarts.
-    app.state.rate_limiter = PersistentRateLimiter(lambda: settings.database_path)
-    settings.workspace.mkdir(parents=True, exist_ok=True)
-    settings.api_token_file.parent.mkdir(parents=True, exist_ok=True)
-    if not settings.api_token_file.exists():
-        token = secrets.token_urlsafe(32)
-        fd = os.open(settings.api_token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(token + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-    try:
-        os.chmod(settings.api_token_file, 0o600)
-    except OSError:
-        pass
-    con = _db()
-    con.close()
-    # Never replay a partially executed autonomous run after restart.
-    from nova.autonomy import recover_interrupted_runs
-    from nova.self_improvement import recover_interrupted_skill_runs
-    recover_interrupted_runs()
-    recover_interrupted_skill_runs()
-    initialize_knowledge()
-    initialize_scheduler_config()
-    start_worker()
-    start_update_worker()
-
-
-@app.on_event("shutdown")
-def shutdown():
-    stop_worker()
-    stop_update_worker()
 
 
 @app.get("/api/health")
