@@ -90,7 +90,9 @@ def chat(message: str, max_tokens: int = 512, model_id: str | None = None, tempe
         method="POST",
     )
     try:
-        with _open(request, timeout=120) as response:
+        # CPU-only local models may take longer than a cloud model. Keep this
+        # configurable per deployment while bounding the maximum wait to 10 minutes.
+        with _open(request, timeout=settings.litert_chat_timeout_seconds) as response:
             data = json.loads(_read_bounded(response, MAX_CHAT_RESPONSE_BYTES))
         content = data["choices"][0]["message"]["content"]
         if not isinstance(content, str):
