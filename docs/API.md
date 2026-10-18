@@ -79,3 +79,9 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - Startup recovery marks skill runs left in running state as interrupted while preserving their last committed checkpoint; it does not automatically replay any step.
 - POST /self/skills/{skill_id}/runs/{run_id}/resume accepts only interrupted or failed runs, revalidates the complete saved plan, and continues from the checkpoint. The checkpoint must match the number of persisted results.
 - Cancelled runs are intentionally not resumable through this endpoint. Resume is operator-triggered, and the current allowlist remains calculator and local knowledge search only.
+
+
+## Bounded workflow retries
+- Skill steps may set `retries` from 0 to 3 (default 0), representing additional attempts after the first attempt. The full workflow is preflight-validated before execution.
+- Each attempt is persisted to run history and included in audit metadata. Exhaustion marks the run failed while preserving prior successful checkpoints and attempt history. Explicit resume revalidates the complete plan and retries the first incomplete step; it never happens automatically.
+- Only the existing calculator and local knowledge-search primitives are allowed; retry budgets cannot exceed three retries per step.
