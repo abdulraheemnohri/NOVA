@@ -69,3 +69,9 @@ A feature is complete only when API, UI controls, persistence, permission checks
 - `csv_summary` reports row/column counts, missing values and conservative per-column type hints from bounded CSV input (100,000 characters, 2,000 rows, 100 columns).
 - `markdown_outline` extracts Markdown heading levels and line numbers from bounded text (100,000 characters, 500 headings).
 - Both are default-deny policy registered, audit logged, and available through the live Agent Workbench tool catalog/runner. No file, shell, or network permissions are added.
+
+
+## Dynamic runtime controls
+- Settings now expose persistent enable/disable switches for local retrieval, Hugging Face browsing, model downloads, Whisper, Piper, OCR, and ONNX runtime discovery.
+- Model-download size limits can be reduced in the UI and remain bounded by the environment-defined maximum.
+- Every settings update is validated and audit-logged; disabled operations are rejected by the backend, not just hidden in the UI.
