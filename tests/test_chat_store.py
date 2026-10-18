@@ -56,9 +56,8 @@ def test_conversation_messages_and_attachment_lifecycle(monkeypatch, tmp_path):
         deleted = client.delete(f"/api/chat/conversations/{conversation_id}")
         assert deleted.status_code == 204
         assert client.get(f"/api/chat/conversations/{conversation_id}/messages").status_code == 404
-        assert not (settings.workspace / "chat-uploads" / next(
-            (settings.workspace / "chat-uploads").iterdir()
-        ).name).exists() if list((settings.workspace / "chat-uploads").glob("*")) else True
+        upload_dir = settings.workspace / "chat-uploads"
+        assert not list(upload_dir.iterdir())
 
 
 def test_chat_upload_rejects_unsupported_type_and_oversized_file(monkeypatch, tmp_path):
