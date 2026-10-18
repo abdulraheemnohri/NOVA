@@ -6,7 +6,8 @@ from unittest.mock import patch
 from scripts import install_optional_runtimes as installer
 
 
-def test_litert_and_piper_install_is_opt_in_and_never_starts_a_runtime(monkeypatch) -> None:
+def test_litert_and_piper_install_is_opt_in_and_never_starts_a_runtime(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(installer, "VENV_PYTHON", tmp_path / "bin" / "python")
     installer.VENV_PYTHON.parent.mkdir(parents=True, exist_ok=True)
     installer.VENV_PYTHON.touch()
     commands: list[list[str]] = []
