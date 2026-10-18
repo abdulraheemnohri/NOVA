@@ -329,3 +329,64 @@ def test_runtime_install_preview_is_allowlisted_and_never_executes(tmp_path, mon
         rejected = client.post("/api/runtimes/operations/preview", headers=headers,
                                json={"runtime_id": "custom; rm -rf /"})
         assert rejected.status_code == 422
+
+
+
+def test_runtime_install_request_requires_explicit_decision_and_never_executes(tmp_path, monkeypatch):
+    from nova import runtimes
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("approval workflow must never execute a package manager")
+
+    monkeypatch.setattr(runtimes.subprocess, "run", forbidden)
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        created = client.post("/api/runtimes/operations/requests", headers=headers,
+                              json={"runtime_id": "ffmpeg-audio"})
+        assert created.status_code == 201, created.text
+        request = created.json()
+        assert request["status"] == "pending"
+        assert request["packages"] == ["ffmpeg"]
+        assert request["executed"] is False
+
+        listed = client.get("/api/runtimes/operations/requests", headers=headers)
+        assert listed.status_code == 200
+        assert listed.json()["requests"][0]["request_id"] == request["request_id"]
+
+        approved = client.post(
+            f"/api/runtimes/operations/requests/{request['request_id']}/decision",
+            headers=headers, json={"decision": "approve", "note": "Reviewed locally"},
+        )
+        assert approved.status_code == 200, approved.text
+        assert approved.json()["status"] == "approved"
+        assert approved.json()["executed"] is False
+
+        duplicate = client.post(
+            f"/api/runtimes/operations/requests/{request['request_id']}/decision",
+            headers=headers, json={"decision": "reject"},
+        )
+        assert duplicate.status_code == 409
+
+        missing = client.post(
+            "/api/runtimes/operations/requests/missing/decision",
+            headers=headers, json={"decision": "approve"},
+        )
+        assert missing.status_code == 404
+
+        unsupported = client.post("/api/runtimes/operations/requests", headers=headers,
+                                  json={"runtime_id": "custom; rm -rf /"})
+        assert unsupported.status_code == 422
+
+
+def test_runtime_install_request_can_be_rejected(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        created = client.post("/api/runtimes/operations/requests", headers=headers,
+                              json={"runtime_id": "tesseract-ocr"})
+        assert created.status_code == 201
+        request_id = created.json()["request_id"]
+        rejected = client.post(
+            f"/api/runtimes/operations/requests/{request_id}/decision",
+            headers=headers, json={"decision": "reject", "note": "Not needed"},
+        )
+        assert rejected.status_code == 200
+        assert rejected.json()["status"] == "rejected"
+        assert rejected.json()["decision_note"] == "Not needed"
