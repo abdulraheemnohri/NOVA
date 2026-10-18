@@ -285,3 +285,25 @@ def test_distribution_version_lookup_is_read_only_and_skips_missing_packages(mon
     monkeypatch.setattr(runtimes.importlib.metadata, "version", fake_version)
     assert runtimes._distribution_version("tflite-runtime", "ai-edge-litert") == "1.2.3"
     assert calls == ["tflite-runtime", "ai-edge-litert"]
+
+
+def test_runtime_preflight_is_read_only_and_keeps_litert_as_primary(tmp_path, monkeypatch):
+    from nova import runtimes
+
+    monkeypatch.setattr(runtimes, "litert_health", lambda: {
+        "reachable": False, "base_url": "http://127.0.0.1:9379/v1"
+    })
+    monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: None)
+    monkeypatch.setattr(runtimes, "_module_available", lambda name: False)
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.get("/api/runtimes/preflight", headers=headers)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["ready"] is False
+        assert body["primary_chat_runtime"] == "litert-lm"
+        assert body["automatic_fallback"] is False
+        assert "does not install packages" in body["safety"]
+        checks = {item["runtime_id"]: item for item in body["checks"]}
+        assert checks["litert-lm"]["severity"] == "critical"
+        assert "Start/configure" in checks["litert-lm"]["action"]
+        assert checks["whisper-cpp"]["severity"] == "recommended"
