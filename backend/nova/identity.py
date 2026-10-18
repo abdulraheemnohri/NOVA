@@ -50,16 +50,18 @@ def set_skill(sid:str,enabled:bool):
  c=db()
  try:
   cur=c.execute("UPDATE agent_skills SET enabled=? WHERE id=?",(int(enabled),sid));c.commit()
-  if not cur.rowcount:raise HTTPException(404,"Skill not found.")
+  if not cur.rowcount:raise HTTPException(404,"Skill not found")
  finally:c.close()
+ append_audit(settings.audit_path,"agent.skill.updated",{"skill_id":sid,"enabled":enabled})
  return {"id":sid,"enabled":enabled}
 @router.delete("/skills/{sid}")
 def del_skill(sid:str):
  c=db()
  try:
   cur=c.execute("DELETE FROM agent_skills WHERE id=?",(sid,));c.commit()
-  if not cur.rowcount:raise HTTPException(404,"Skill not found.")
+  if not cur.rowcount:raise HTTPException(404,"Skill not found")
  finally:c.close()
+ append_audit(settings.audit_path,"agent.skill.deleted",{"skill_id":sid})
  return {"deleted":True}
 def compose_prompt(message,excerpts=""):
  p=get_profile();c=db()
