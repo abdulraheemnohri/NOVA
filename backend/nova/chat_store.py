@@ -226,7 +226,7 @@ def export_conversation(conversation_id: str, format: str = "json"):
             "exported_at": _now(),
             "conversation": _conversation(conversation),
             "messages": message_items,
-            "attachments": uploads,
+            "attachments": [{key: value for key, value in item.items() if key != "stored_name"} for item in uploads],
             "attachment_policy": "Binary files are not embedded; use the original NOVA conversation to download them.",
         }
         safe_id = re.sub(r"[^A-Za-z0-9_-]", "", conversation_id)[:80] or "conversation"
