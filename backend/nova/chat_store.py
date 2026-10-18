@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from io import BytesIO
+import zipfile
 import json
 import re
 import sqlite3
@@ -204,8 +205,8 @@ def save_message(conversation_id: str, req: MessageCreate):
 @router.get("/conversations/{conversation_id}/export")
 def export_conversation(conversation_id: str, format: str = "json"):
     """Export one conversation and attachment metadata without embedding binary uploads."""
-    if format not in {"json", "markdown"}:
-        raise HTTPException(422, "Export format must be 'json' or 'markdown'.")
+    if format not in {"json", "markdown", "zip"}:
+        raise HTTPException(422, "Export format must be 'json', 'markdown', or 'zip'.")
     con = _connect()
     try:
         conversation = _require_conversation(con, conversation_id)
@@ -214,7 +215,7 @@ def export_conversation(conversation_id: str, format: str = "json"):
             (conversation_id,),
         ).fetchall()
         upload_rows = con.execute(
-            "SELECT id,original_name,content_type,size_bytes,sha256,created_at,extracted_text "
+            "SELECT id,original_name,stored_name,content_type,size_bytes,sha256,created_at,extracted_text "
             "FROM chat_uploads WHERE conversation_id=? ORDER BY created_at,id",
             (conversation_id,),
         ).fetchall()
@@ -225,7 +226,7 @@ def export_conversation(conversation_id: str, format: str = "json"):
             "exported_at": _now(),
             "conversation": _conversation(conversation),
             "messages": message_items,
-            "attachments": uploads,
+            "attachments": [{key: value for key, value in item.items() if key != "stored_name"} for item in uploads],
             "attachment_policy": "Binary files are not embedded; use the original NOVA conversation to download them.",
         }
         safe_id = re.sub(r"[^A-Za-z0-9_-]", "", conversation_id)[:80] or "conversation"
@@ -276,6 +277,40 @@ def export_conversation(conversation_id: str, format: str = "json"):
             if attachment["extracted_text"]:
                 lines.extend(["<details>", "<summary>Extracted text</summary>", "",
                               attachment["extracted_text"], "", "</details>", ""])
+        if format == "zip":
+            upload_dir = settings.workspace / "chat-uploads"
+            if upload_dir.is_symlink():
+                raise HTTPException(403, "Upload storage must not be a symbolic link.")
+            if len(uploads) > 100:
+                raise HTTPException(413, "Chat backup is limited to 100 attachments.")
+            archive_buffer = BytesIO()
+            total_bytes = 0
+            try:
+                with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                    archive.writestr("conversation.json", json.dumps(payload, ensure_ascii=False, indent=2))
+                    archive.writestr("conversation.md", "\n".join(lines))
+                    for attachment in uploads:
+                        stored_name = attachment["stored_name"]
+                        stored = Path(stored_name)
+                        if len(stored.parts) != 1 or stored.name != stored_name:
+                            raise HTTPException(500, "Unsafe attachment metadata encountered; export stopped.")
+                        path = upload_dir / stored_name
+                        if path.is_symlink() or not path.is_file() or path.resolve().parent != upload_dir.resolve():
+                            raise HTTPException(404, "A stored attachment is unavailable; backup stopped.")
+                        total_bytes += path.stat().st_size
+                        if total_bytes > 100 * 1024 * 1024:
+                            raise HTTPException(413, "Chat backup attachment data is limited to 100 MiB.")
+                        safe_name = _SAFE_NAME.sub("_", Path(attachment["original_name"]).name).strip("._") or "attachment"
+                        archive.write(path, arcname="attachments/" + attachment["id"] + "_" + safe_name)
+            except Exception:
+                archive_buffer.close()
+                raise
+            return Response(
+                content=archive_buffer.getvalue(),
+                media_type="application/zip",
+                headers={"Content-Disposition": f'attachment; filename="nova-chat-{safe_id}.zip"',
+                         "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+            )
         return Response(
             content="\n".join(lines),
             media_type="text/markdown; charset=utf-8",
