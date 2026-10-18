@@ -274,3 +274,38 @@ def download_huggingface_artifact(req: DownloadRequest):
             "file_path": str(destination), "size_bytes": total, "sha256": digest_hex,
             "cached": False, "format": extension[1:], "inference_enabled": extension == ".litertlm",
             "next_step": "Register this local artifact in Model Manager and select it only if it is a compatible LiteRT-LM model."}
+
+@router.get("/cache")
+def list_local_model_cache():
+    """List cached artifacts without hashing, loading, or executing model files."""
+    root = settings.huggingface_cache_dir.expanduser().resolve()
+    if not root.exists():
+        return {"cache_dir": str(root), "files": [], "file_count": 0, "total_bytes": 0, "truncated": False}
+    files = []
+    total_bytes = 0
+    truncated = False
+    try:
+        for path in root.rglob("*"):
+            # Never follow symlinks or expose transient partial downloads.
+            if path.is_symlink() or not path.is_file() or path.name.startswith(".nova-download-"):
+                continue
+            try:
+                resolved = path.resolve(strict=True)
+                if root not in resolved.parents:
+                    continue
+                size = resolved.stat().st_size
+            except OSError:
+                continue
+            if len(files) >= 1000:
+                truncated = True
+                break
+            relative = resolved.relative_to(root).as_posix()
+            files.append({"relative_path": relative, "file_path": str(resolved), "size_bytes": size,
+                          "format": resolved.suffix.lower().lstrip("."), "registered": False})
+            total_bytes += size
+    except OSError as exc:
+        raise HTTPException(500, "Unable to inspect the local model cache.") from exc
+    files.sort(key=lambda item: item["relative_path"].casefold())
+    return {"cache_dir": str(root), "files": files, "file_count": len(files),
+            "total_bytes": total_bytes, "truncated": truncated,
+            "note": "Inventory only: files are not loaded or executed; registration status is not inferred."}
