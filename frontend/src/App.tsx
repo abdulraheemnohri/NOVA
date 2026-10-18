@@ -18,7 +18,7 @@ const API="http://127.0.0.1:8000/api";
 type Health={status?:string;offline_mode?:boolean;llm_runtime?:string;litert?:{reachable?:boolean;message?:string};audit_chain_valid?:boolean;audit_event_count?:number};
 type Approval={id:string;action:string;reason:string;status:string;created_at:string;payload_json?:string};
 type Snapshot={id:string;relative_path:string;existed:number;created_at:string;rolled_back_at:string|null};
-type SettingsPreferences={chat_max_tokens:number;auto_refresh_seconds:number;confirm_model_selection:boolean};
+type SettingsPreferences={chat_max_tokens:number;chat_temperature:number;auto_refresh_seconds:number;confirm_model_selection:boolean};
 type RuntimeSettings={mode?:string;llm_runtime?:string;litert_base_url?:string;model_id?:string;require_approval_for_writes?:boolean;network_policy?:string;tool_policy?:string;rollback_enabled?:boolean;huggingface_enabled?:boolean;huggingface_cache_dir?:string;huggingface_max_download_bytes?:number;huggingface_token_configured?:boolean};
 type DocumentItem={id:string;source_name:string;content_sha256:string;created_at:string;chunks:number};
 type AuditVerification={valid:boolean;events_verified:number};
@@ -29,7 +29,7 @@ type CacheFile={relative_path:string;file_path:string;size_bytes:number;format:s
 type CacheInventory={cache_dir:string;files:CacheFile[];file_count:number;total_bytes:number;truncated:boolean;note?:string};
 function formatPayload(raw?:string){try{return JSON.stringify(JSON.parse(raw||"{}"),null,2)}catch{return raw||"{}"}}
 export default function App(){
- const [page,setPage]=useState("Dashboard"),[health,setHealth]=useState<Health|null>(null),[approvals,setApprovals]=useState<Approval[]>([]),[runtimeSettings,setRuntimeSettings]=useState<RuntimeSettings|null>(null),[uiPreferences,setUiPreferences]=useState<SettingsPreferences>({chat_max_tokens:512,auto_refresh_seconds:0,confirm_model_selection:true});
+ const [page,setPage]=useState("Dashboard"),[health,setHealth]=useState<Health|null>(null),[approvals,setApprovals]=useState<Approval[]>([]),[runtimeSettings,setRuntimeSettings]=useState<RuntimeSettings|null>(null),[uiPreferences,setUiPreferences]=useState<SettingsPreferences>({chat_max_tokens:512,chat_temperature:0.2,auto_refresh_seconds:0,confirm_model_selection:true});
  const [message,setMessage]=useState(""),[documentNotice,setDocumentNotice]=useState(""),[chatHistory,setChatHistory]=useState<{role:"user"|"assistant";content:string;sources?:{source:string;document_id:string;chunk_id:string;chunk_index:number;score:number}[]}[]>([]),[busy,setBusy]=useState(false),[error,setError]=useState("");
  const [docName,setDocName]=useState("notes.txt"),[docContent,setDocContent]=useState(""),[documents,setDocuments]=useState<DocumentItem[]>([]),[query,setQuery]=useState(""),[searchResults,setSearchResults]=useState<any[]>([]),[binaryImportBusy,setBinaryImportBusy]=useState(false);
   const [citationChecks,setCitationChecks]=useState<Record<string,{status:string;reason:string}>>({});
