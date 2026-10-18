@@ -502,6 +502,8 @@ def get_runtime_install_execution(request_id: str):
 @router.post("/ocr/extract")
 async def extract_image_text(file: UploadFile = File(...)):
     """Run explicitly requested OCR with a preinstalled local Tesseract binary."""
+    if not get_feature_settings()["ocr_enabled"]:
+        raise HTTPException(403, "Image OCR is disabled in Runtime Features settings.")
     filename = Path(file.filename or "image").name
     suffix = Path(filename).suffix.lower()
     allowed = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
@@ -572,6 +574,8 @@ async def extract_image_text(file: UploadFile = File(...)):
 @router.post("/piper/synthesize")
 def synthesize_with_piper(req: SynthesisRequest):
     """Synthesize speech with a preinstalled local Piper executable and voice model."""
+    if not get_feature_settings()["piper_enabled"]:
+        raise HTTPException(403, "Piper speech synthesis is disabled in Runtime Features settings.")
     if not req.text.strip():
         raise HTTPException(422, "Text to synthesize must not be blank.")
     executable = _resolve_executable(settings.piper_cli_path, ("piper",))
@@ -656,6 +660,8 @@ def _convert_audio_to_wav(source_path: Path, target_path: Path, timeout: int) ->
 @router.post("/whisper/transcribe")
 async def transcribe_with_whisper(file: UploadFile = File(...)):
     """Transcribe common audio formats using local FFmpeg and whisper.cpp."""
+    if not get_feature_settings()["whisper_enabled"]:
+        raise HTTPException(403, "Whisper transcription is disabled in Runtime Features settings.")
     filename = Path(file.filename or "audio.wav").name
     suffix = Path(filename).suffix.lower()
     allowed_suffixes = {".wav", ".mp3", ".m4a", ".flac", ".ogg", ".webm", ".aac", ".mp4"}
