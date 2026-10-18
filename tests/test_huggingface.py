@@ -136,3 +136,18 @@ def test_huggingface_cached_artifact_still_obeys_current_size_limit(monkeypatch,
 
     assert response.status_code == 413
     assert "Cached artifact exceeds" in response.json()["detail"]
+
+def test_model_cache_inventory_is_bounded_read_only_and_ignores_partial_files(monkeypatch, tmp_path):
+    root = tmp_path / "models"
+    (root / "repo" / "revision").mkdir(parents=True)
+    (root / "repo" / "revision" / "model.litertlm").write_bytes(b"abc123")
+    (root / "repo" / "revision" / ".nova-download-partial").write_bytes(b"partial")
+    monkeypatch.setattr(settings, "huggingface_cache_dir", root)
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.get("/api/models/huggingface/cache")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["file_count"] == 1
+    assert data["total_bytes"] == 6
+    assert data["files"][0]["relative_path"] == "repo/revision/model.litertlm"
+    assert "registered" not in data["files"][0]
