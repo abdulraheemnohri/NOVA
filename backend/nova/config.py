@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     huggingface_cache_dir: Path = Path("./data/models/huggingface")
     huggingface_max_download_bytes: int = 2000000000
     huggingface_token: str = ""
+    huggingface_token_file: Path = Path("./data/huggingface.token")
     require_approval_for_writes: bool = True
     scheduler_enabled: bool = False
     scheduler_interval_seconds: int = Field(default=15, ge=5, le=3600)

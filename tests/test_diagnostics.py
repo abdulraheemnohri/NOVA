@@ -64,3 +64,28 @@ def test_diagnostics_requires_local_api_token(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as (client, _headers):
         response = client.get("/api/diagnostics")
         assert response.status_code == 401
+
+
+def test_diagnostic_authority_is_allowlisted_and_exec_requires_confirmation(tmp_path, monkeypatch):
+    from nova import diagnostics
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        authority = client.get("/api/diagnostics/authority", headers=headers)
+        assert authority.status_code == 200
+        data = authority.json()
+        assert data["arbitrary_shell_enabled"] is False
+        assert any(item["id"] == "python-version" for item in data["commands"])
+        missing_confirmation = client.post("/api/diagnostics/execute", headers=headers, json={
+            "command_id": "python-version", "confirm_execution": False,
+        })
+        assert missing_confirmation.status_code == 400
+        arbitrary = client.post("/api/diagnostics/execute", headers=headers, json={
+            "command_id": "rm-rf", "confirm_execution": True,
+        })
+        assert arbitrary.status_code == 422
+        result = client.post("/api/diagnostics/execute", headers=headers, json={
+            "command_id": "python-version", "confirm_execution": True,
+        })
+        assert result.status_code == 200, result.text
+        assert result.json()["status"] == "succeeded"
+        assert result.json()["shell_used"] is False
+        assert "Python" in result.json()["output"] or "python" in result.json()["output"].lower()
