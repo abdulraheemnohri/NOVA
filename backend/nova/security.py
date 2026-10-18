@@ -166,6 +166,7 @@ class PersistentRateLimiter:
             con.execute("BEGIN IMMEDIATE")
             con.execute("DELETE FROM nova_rate_events WHERE kind='request' AND event_at<=?",
                         (now - 60,))
+            con.execute("DELETE FROM nova_rate_blocks WHERE blocked_until<=?", (now,))
             count = con.execute(
                 "SELECT COUNT(*) FROM nova_rate_events WHERE kind='request' AND bucket_key=? AND event_at>?",
                 (key, now - 60),
