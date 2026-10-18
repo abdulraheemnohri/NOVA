@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
@@ -197,6 +197,91 @@ def save_message(conversation_id: str, req: MessageCreate):
                 con.execute("UPDATE chat_conversations SET title=? WHERE id=?", (title, conversation_id))
         con.commit()
         return _message(con.execute("SELECT * FROM chat_messages WHERE id=?", (message_id,)).fetchone())
+    finally:
+        con.close()
+
+
+@router.get("/conversations/{conversation_id}/export")
+def export_conversation(conversation_id: str, format: str = "json"):
+    """Export one conversation and attachment metadata without embedding binary uploads."""
+    if format not in {"json", "markdown"}:
+        raise HTTPException(422, "Export format must be 'json' or 'markdown'.")
+    con = _connect()
+    try:
+        conversation = _require_conversation(con, conversation_id)
+        messages = con.execute(
+            "SELECT * FROM chat_messages WHERE conversation_id=? ORDER BY created_at,id",
+            (conversation_id,),
+        ).fetchall()
+        upload_rows = con.execute(
+            "SELECT id,original_name,content_type,size_bytes,sha256,created_at,extracted_text "
+            "FROM chat_uploads WHERE conversation_id=? ORDER BY created_at,id",
+            (conversation_id,),
+        ).fetchall()
+        uploads = [dict(row) for row in upload_rows]
+        message_items = [_message(row) for row in messages]
+        payload = {
+            "schema_version": 1,
+            "exported_at": _now(),
+            "conversation": _conversation(conversation),
+            "messages": message_items,
+            "attachments": uploads,
+            "attachment_policy": "Binary files are not embedded; use the original NOVA conversation to download them.",
+        }
+        safe_id = re.sub(r"[^A-Za-z0-9_-]", "", conversation_id)[:80] or "conversation"
+        if format == "json":
+            body = json.dumps(payload, ensure_ascii=False, indent=2)
+            return Response(
+                content=body,
+                media_type="application/json; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="nova-chat-{safe_id}.json"',
+                         "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+            )
+        lines = [
+            f"# {conversation['title']}",
+            "",
+            f"- Conversation ID: {conversation_id}",
+            f"- Created: {conversation['created_at']}",
+            f"- Updated: {conversation['updated_at']}",
+            f"- Exported: {payload['exported_at']}",
+            "",
+            "> Attachment files are not embedded in this Markdown export. Metadata and extracted text are included below where available.",
+            "",
+        ]
+        attachment_map = {item["id"]: item for item in uploads}
+        for item in message_items:
+            lines.extend([f"## {item['role'].capitalize()}", "", item["content"], ""])
+            for attachment_id in item["attachments"]:
+                attachment = attachment_map.get(attachment_id)
+                if attachment:
+                    lines.extend([
+                        f"- Attachment: **{attachment['original_name']}**",
+                        f"  - Type: {attachment['content_type']}",
+                        f"  - Size: {attachment['size_bytes']} bytes",
+                        f"  - SHA-256: {attachment['sha256']}",
+                    ])
+            if item["attachments"]:
+                lines.append("")
+        lines.extend(["## Attachment inventory", ""])
+        for attachment in uploads:
+            lines.extend([
+                f"### {attachment['original_name']}",
+                "",
+                f"- ID: {attachment['id']}",
+                f"- Type: {attachment['content_type']}",
+                f"- Size: {attachment['size_bytes']} bytes",
+                f"- SHA-256: {attachment['sha256']}",
+                "",
+            ])
+            if attachment["extracted_text"]:
+                lines.extend(["<details>", "<summary>Extracted text</summary>", "",
+                              attachment["extracted_text"], "", "</details>", ""])
+        return Response(
+            content="\n".join(lines),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="nova-chat-{safe_id}.md"',
+                     "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+        )
     finally:
         con.close()
 
