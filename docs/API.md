@@ -136,3 +136,15 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - `GET /runtimes/litert/autostart`: inspect Linux systemd user-service support, configuration presence, enabled and active status.
 - `PUT /runtimes/litert/autostart` with `{"enabled":true,"enable_linger":false}`: create and start an opt-in user service. Requires Linux + systemd, the project virtual environment, and an operator-configured `NOVA_LITERT_LM_COMMAND` in local `.env`. `enable_linger` is optional and may be denied by OS policy. Set `enabled:false` to stop/disable and remove the unit.
 - The service launcher tokenizes the configured command and uses `execvpe` (no shell). Operators must verify the release-specific command binds to loopback and matches `NOVA_LITERT_BASE_URL`; NOVA does not guess flags, download model weights, or assert device compatibility.
+
+
+## Dynamic Hugging Face token configuration
+- `GET /models/huggingface/status`: reports whether a token is configured and the source category; never returns the secret.
+- `PUT /models/huggingface/token` with `{"token":"..." }`: saves a token to `NOVA_HUGGINGFACE_TOKEN_FILE` (default `data/huggingface.token`) with owner-only permissions. A token configured through the environment or settings takes precedence.
+- `DELETE /models/huggingface/token`: removes only the local token file; environment-provided credentials are not changed. Token values are never returned or written to audit records.
+- Hugging Face model discovery and artifact downloads remain explicit actions. Downloading/registering a model does not mean it is loaded or compatible with the current hardware.
+
+## Diagnostic command authority
+- `GET /diagnostics/authority`: lists the fixed version/help commands available on this host.
+- `POST /diagnostics/execute` with `{"command_id":"python-version","confirm_execution":true}`: executes one fixed read-only command, without a shell or user-controlled arguments. Output is capped, execution times out after eight seconds, and status/output hash are audit logged.
+- The allowlist is limited to Python, Git, Node.js, npm, CMake, FFmpeg version checks, and LiteRT-LM CLI help. Arbitrary terminal commands, scripts, pipes, redirects, and package installation are not exposed.
