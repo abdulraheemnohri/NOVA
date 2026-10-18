@@ -38,9 +38,77 @@ class DownloadRequest(BaseModel):
     max_bytes: int | None = Field(default=None, ge=1, le=2_000_000_000)
 
 
+def _stored_token() -> str:
+    """Read the operator-configured token from its private local file."""
+    path = settings.huggingface_token_file.expanduser()
+    try:
+        if path.is_symlink() or not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def _token() -> str:
-    # Optional token is read from the environment only; it is never returned to the UI.
-    return (settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "")).strip()
+    # Explicit environment configuration takes precedence; secrets are never returned.
+    return (settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "") or _stored_token()).strip()
+
+
+class HubTokenRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=4096)
+
+
+@router.put("/token")
+def configure_huggingface_token(req: HubTokenRequest):
+    """Persist an operator-supplied Hub token in a private local file; never echo it."""
+    token = req.token.strip()
+    if not token or any(ord(ch) < 32 for ch in token):
+        raise HTTPException(422, "Token must be non-empty and contain no control characters.")
+    path = settings.huggingface_token_file.expanduser()
+    if path.is_symlink():
+        raise HTTPException(403, "Refusing to write a token through a symbolic link.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=".nova-hub-token-", dir=path.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(token + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, path)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    finally:
+        try:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
+        except OSError:
+            pass
+    append_audit(settings.audit_path, "huggingface_token.configured", {"configured": True, "storage": "private local file"})
+    return {"configured": True, "token_source": "private local token file", "token_returned": False,
+            "note": "The token is stored locally with owner-only permissions. It is never included in API responses or audit logs."}
+
+
+@router.delete("/token")
+def clear_huggingface_token():
+    """Remove only the locally stored token; environment-provided tokens are not modified."""
+    path = settings.huggingface_token_file.expanduser()
+    if path.is_symlink():
+        raise HTTPException(403, "Refusing to remove a token path that is a symbolic link.")
+    removed = False
+    try:
+        path.unlink()
+        removed = True
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        raise HTTPException(500, "Could not remove the locally stored token.") from exc
+    configured = bool(settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip())
+    append_audit(settings.audit_path, "huggingface_token.cleared", {"local_file_removed": removed, "environment_token_still_configured": configured})
+    return {"configured": configured, "local_file_removed": removed,
+            "environment_token_still_configured": configured, "token_returned": False}
 
 
 class _HubRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -119,7 +187,7 @@ def _safe_filename(filename: str) -> tuple[str, str]:
 def huggingface_status():
     features = get_feature_settings()
     return {"provider": "Hugging Face Hub", "enabled": features["model_hub_enabled"], "downloads_enabled": features["model_downloads_enabled"], "token_configured": bool(_token()),
-            "token_source": "NOVA_HUGGINGFACE_TOKEN environment variable",
+            "token_source": ("environment/config setting" if (settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()) else ("private local token file" if _stored_token() else "not configured")),
             "cache_dir": str(settings.huggingface_cache_dir),
             "max_download_bytes": features["max_model_download_bytes"],
             "inference_policy": "Hugging Face supplies files/metadata only; chat inference remains LiteRT-LM-only."}
