@@ -14,6 +14,7 @@ def _client(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
     monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
     monkeypatch.setattr(settings, "huggingface_cache_dir", tmp_path / "models")
+    monkeypatch.setattr(settings, "huggingface_token_file", tmp_path / "private" / "huggingface.token")
     settings.workspace.mkdir(parents=True, exist_ok=True)
     with TestClient(app) as client:
         token = settings.api_token_file.read_text(encoding="utf-8").strip()
@@ -173,3 +174,24 @@ def test_feature_switch_blocks_hub_search_and_download(monkeypatch, tmp_path):
         })
     assert search.status_code == 403
     assert download.status_code == 403
+
+
+def test_huggingface_token_can_be_configured_and_cleared_without_echo(monkeypatch, tmp_path):
+    import stat
+    secret = "hf_test_secret_value"
+    with _client(monkeypatch, tmp_path) as client:
+        saved = client.put("/api/models/huggingface/token", json={"token": secret})
+        assert saved.status_code == 200, saved.text
+        assert secret not in saved.text
+        assert saved.json()["token_returned"] is False
+        token_path = tmp_path / "private" / "huggingface.token"
+        assert token_path.read_text().strip() == secret
+        assert stat.S_IMODE(token_path.stat().st_mode) == 0o600
+        assert huggingface._token() == secret
+        status = client.get("/api/models/huggingface/status")
+        assert status.status_code == 200
+        assert secret not in status.text
+        cleared = client.delete("/api/models/huggingface/token")
+        assert cleared.status_code == 200, cleared.text
+        assert not token_path.exists()
+        assert cleared.json()["token_returned"] is False
