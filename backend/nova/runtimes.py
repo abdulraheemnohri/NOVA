@@ -784,7 +784,7 @@ def _litert_service_status() -> dict[str, Any]:
             ["systemctl", "--user", "is-active", "nova-litert-lm.service"],
             capture_output=True, text=True, timeout=5, check=False,
         ).returncode == 0
-    env_file = Path.cwd() / ".env"
+    env_file = Path(__file__).resolve().parents[2] / ".env"
     command_in_env_file = False
     try:
         command_in_env_file = any(
