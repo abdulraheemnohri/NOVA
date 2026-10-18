@@ -37,6 +37,11 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Opt-in Linux systemd per-user startup installer for backend and frontend, with status/uninstall and an explicit flag for user lingering. It does not run privileged commands or open public ports.
 - Runtime API discovery documented through the live OpenAPI schema; environment/security configuration remains outside browser-editable preferences.
 
+## Recently added safe utilities
+- Added bounded JSON formatting/validation and UTF-8 Base64 encode/decode to the default-deny local tool registry.
+- Agent Workbench loads the backend tool catalog and provides a JSON-input runner with visible schemas and results.
+- Utility calls enforce input limits and are audit-logged; this does not enable shell, arbitrary network access, or file writes.
+
 ## Remaining work (not yet complete)
 1. Real target-device smoke tests for LiteRT-LM inference, Whisper.cpp and Piper; release-specific runtime version reporting and model/accelerator validation. Follow `docs/REAL_DEVICE_TESTING.md` and record results rather than assuming hardware support.
 2. Citation source/quote verification API and local retrieval benchmark evaluation are implemented. The benchmark reports Recall@k and MRR against operator-labeled chunk IDs; semantic claim-entailment checks and large-corpus performance work remain.
