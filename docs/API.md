@@ -121,3 +121,11 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - `POST /api/agent/tools/execute` supports `csv_summary` with `{"name":"csv_summary","input":{"csv":"name,age\\nA,20"}}`. It returns bounded row/column counts and per-column missing-value counts plus conservative type hints. Input is limited to 100,000 characters, 2,000 rows and 100 unique columns; malformed/duplicate headers are rejected.
 - `POST /api/agent/tools/execute` supports `markdown_outline` with `{"name":"markdown_outline","input":{"markdown":"# Title\\n## Section"}}`. It returns heading levels, text and source line numbers for up to 500 headings and 100,000 input characters.
 - Both tools are deterministic, local, read-only, policy-registered and audit logged. They do not execute document content, access the network, or write files.
+
+
+## Dynamic runtime feature controls
+- `GET /settings/features` reads persistent, audit-logged capability switches.
+- `PUT /settings/features` validates and saves `local_retrieval_enabled`, `model_hub_enabled`, `model_downloads_enabled`, `whisper_enabled`, `piper_enabled`, `ocr_enabled`, `onnx_runtime_enabled`, and `max_model_download_bytes`.
+- These switches take effect at request time for local retrieval, Hugging Face search/file browsing/downloads, Whisper transcription, Piper synthesis, image OCR, and ONNX runtime discovery. Turning a feature off blocks new operations; it does not uninstall packages, remove models, or stop a currently-running external process.
+- The configured model-download byte limit is additionally capped by `NOVA_HUGGINGFACE_MAX_DOWNLOAD_BYTES`; the UI cannot raise the environment-defined hard ceiling.
+- These settings do not change the LiteRT-LM-only chat policy, API authentication, audit enforcement, workspace write approvals, or network binding.
