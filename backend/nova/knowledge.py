@@ -438,6 +438,67 @@ def search_knowledge(req:SearchRequest):
             "If embeddings are enabled but unavailable, check the local model path and optional dependencies.")
     return {"query":req.query,"method":method,"results":results[:req.limit],"note":note}
 
+class RetrievalBenchmarkCase(BaseModel):
+    query: str = Field(min_length=1, max_length=1000)
+    relevant_chunk_ids: list[str] = Field(min_length=1, max_length=50)
+
+
+class RetrievalBenchmarkRequest(BaseModel):
+    cases: list[RetrievalBenchmarkCase] = Field(min_length=1, max_length=50)
+    k: int = Field(default=5, ge=1, le=20)
+
+
+@router.post("/knowledge/evaluate")
+def evaluate_retrieval(req: RetrievalBenchmarkRequest):
+    """Evaluate local retrieval against operator-provided relevant chunk IDs.
+
+    Metrics are computed only from local retrieval results and the supplied labels.
+    They measure retrieval ranking, not answer correctness or semantic entailment.
+    """
+    case_results = []
+    recalls = []
+    reciprocal_ranks = []
+    for index, case in enumerate(req.cases):
+        relevant = set(case.relevant_chunk_ids)
+        found = search_knowledge(SearchRequest(query=case.query, limit=req.k))
+        ranked = [str(item["chunk_id"]) for item in found["results"]]
+        hits = [chunk_id for chunk_id in ranked if chunk_id in relevant]
+        recalls.append(len(set(hits)) / len(relevant))
+        first_rank = next((rank for rank, chunk_id in enumerate(ranked, 1)
+                           if chunk_id in relevant), None)
+        reciprocal_ranks.append(1.0 / first_rank if first_rank else 0.0)
+        case_results.append({
+            "case_index": index,
+            "query": case.query,
+            "retrieval_method": found["method"],
+            "relevant_count": len(relevant),
+            "retrieved_count": len(ranked),
+            "relevant_retrieved": len(set(hits)),
+            "recall_at_k": round(recalls[-1], 4),
+            "reciprocal_rank": round(reciprocal_ranks[-1], 4),
+            "relevant_chunk_ids_retrieved": sorted(set(hits)),
+            "retrieved_chunk_ids": ranked,
+        })
+    result = {
+        "case_count": len(case_results),
+        "k": req.k,
+        "mean_recall_at_k": round(sum(recalls) / len(recalls), 4),
+        "mean_reciprocal_rank": round(sum(reciprocal_ranks) / len(reciprocal_ranks), 4),
+        "cases": case_results,
+        "limitations": [
+            "Relevant chunk IDs are operator-supplied labels and are not independently validated.",
+            "Metrics measure retrieval ranking only; they do not verify answer correctness or semantic entailment.",
+            "Evaluation uses the configured local retrieval mode and makes no external network calls.",
+        ],
+    }
+    _audit("knowledge.retrieval_benchmark", {
+        "case_count": len(case_results), "k": req.k,
+        "mean_recall_at_k": result["mean_recall_at_k"],
+        "mean_reciprocal_rank": result["mean_reciprocal_rank"],
+    })
+    return result
+
+
 class CitationReference(BaseModel):
     chunk_id: str = Field(min_length=1, max_length=80)
     quote: str = Field(min_length=1, max_length=1000)
