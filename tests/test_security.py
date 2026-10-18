@@ -54,7 +54,7 @@ def test_persistent_limiter_does_not_store_raw_client_key(tmp_path):
     import sqlite3
     con = sqlite3.connect(path)
     try:
-        rows = con.execute("SELECT DISTINCT client_key FROM api_rate_events").fetchall()
+        rows = con.execute("SELECT DISTINCT bucket_key FROM nova_rate_events").fetchall()
     finally:
         con.close()
     assert rows
