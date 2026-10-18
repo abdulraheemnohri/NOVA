@@ -18,3 +18,8 @@ Audit records form a SHA-256 hash chain. This detects ordinary edits but is not 
 ## Prompt context and retrieved content
 
 The agent prompt keeps a fixed safety contract after operator profile and skill guidance. Enabled skills and retrieved local excerpts are serialized as JSON data so embedded newlines cannot impersonate surrounding prompt sections. This is a formatting boundary, not a guarantee against model prompt injection: retrieved text remains untrusted, tool permissions are enforced by backend policy, and arbitrary shell/code execution remains disabled. Continue to test adversarial documents and skills against each supported local model.
+
+
+## Local inference response hardening
+
+The LiteRT-LM adapter only accepts HTTP endpoints whose host is a literal loopback IP or `localhost`. Endpoint URLs containing embedded credentials, query strings or fragments are rejected. Redirects from the configured local endpoint are not followed, preventing a local service from redirecting the adapter to an external host. `/models` and chat responses are read with strict byte limits; malformed or oversized responses fail closed. This is defense in depth, not a substitute for keeping the inference server bound to loopback and running it as an unprivileged user.
