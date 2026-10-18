@@ -85,3 +85,9 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - Skill steps may set `retries` from 0 to 3 (default 0), representing additional attempts after the first attempt. The full workflow is preflight-validated before execution.
 - Each attempt is persisted to run history and included in audit metadata. Exhaustion marks the run failed while preserving prior successful checkpoints and attempt history. Explicit resume revalidates the complete plan and retries the first incomplete step; it never happens automatically.
 - Only the existing calculator and local knowledge-search primitives are allowed; retry budgets cannot exceed three retries per step.
+
+
+## Citation verification
+- POST /api/citations/verify accepts a query and 1–20 citations, each with a local chunk_id and quoted text.
+- The endpoint verifies that each chunk belongs to an imported local document and that the normalized quote appears verbatim in that chunk. It records an audit event.
+- This is deterministic source/quote validation, not semantic claim-entailment verification. Clients must not treat grounded=true as proof that a broader claim logically follows from the quote.

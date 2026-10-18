@@ -30,7 +30,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 
 ## Remaining work (not yet complete)
 1. Real target-device smoke tests for whisper.cpp and Piper, plus release-specific LiteRT-LM version reporting and model/accelerator validation.
-2. Retrieval evaluation, citation-level grounding verification, and large-corpus performance work for semantic RAG.
+2. Citation source/quote verification API is implemented; retrieval benchmark evaluation, semantic claim-entailment checks, and large-corpus performance work remain.
 3. Approval-bound task execution adapters and production OS-level sandboxing. Task lifecycle now supports a configurable 1–10 attempt budget and concurrency-safe status transitions; the current scheduler only dispatches due tasks to human review and does not execute tools.
 4. Approval-bound tool execution and production OS-level sandboxing.
 5. Expand audio support with streaming/realtime ASR, additional input formats, voice/model selection, and voice activity detection.

@@ -218,3 +218,45 @@ def test_semantic_embedding_vectors_are_persistently_cached(tmp_path, monkeypatc
     finally:
         con.close()
     assert count == 2
+
+
+def test_citation_verification_confirms_exact_quote_from_local_source(tmp_path, monkeypatch):
+    from nova.knowledge import CitationReference, CitationVerificationRequest, verify_citations
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    imported = import_document(DocumentImport(
+        source_name="grounding.txt",
+        content="NOVA keeps chat inference local. Tool execution requires explicit policy approval.",
+    ))
+    found = search_knowledge(SearchRequest(query="NOVA local inference", limit=5))
+    citation = next(item for item in found["results"] if item["document_id"] == imported["id"])
+    result = verify_citations(CitationVerificationRequest(
+        query="Where does NOVA run inference?",
+        citations=[CitationReference(chunk_id=citation["chunk_id"], quote="NOVA keeps chat inference local.")],
+    ))
+    assert result["all_grounded"] is True
+    assert result["verified"][0]["source_exists"] is True
+    assert result["verified"][0]["quote_verified"] is True
+    assert "semantic entailment is not verified" in result["verification_scope"]
+
+
+def test_citation_verification_rejects_unknown_ids_and_mismatched_quotes(tmp_path, monkeypatch):
+    from nova.knowledge import CitationReference, CitationVerificationRequest, verify_citations
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    imported = import_document(DocumentImport(
+        source_name="grounding.txt", content="Only this exact sentence is in the source.",
+    ))
+    found = search_knowledge(SearchRequest(query="exact sentence source", limit=5))
+    citation = next(item for item in found["results"] if item["document_id"] == imported["id"])
+    result = verify_citations(CitationVerificationRequest(
+        query="Check citations",
+        citations=[
+            CitationReference(chunk_id=citation["chunk_id"], quote="The source says something else."),
+            CitationReference(chunk_id="not-a-real-chunk", quote="invented quote"),
+        ],
+    ))
+    assert result["all_grounded"] is False
+    assert result["verified"][0]["source_exists"] is True
+    assert result["verified"][0]["quote_verified"] is False
+    assert result["verified"][1]["source_exists"] is False
