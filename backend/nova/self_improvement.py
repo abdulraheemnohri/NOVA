@@ -140,7 +140,7 @@ def activate_skill(skill_id: str):
     con = db()
     try:
         cur = con.execute(
-            "UPDATE self_skills SET status='active',version=version+1,updated_at=? WHERE id=? AND status='draft'",
+            "UPDATE self_skills SET status='active',version=version+1,updated_at=? WHERE id=? AND status IN ('draft','disabled')",
             (now(), skill_id),
         )
         con.commit()
@@ -150,8 +150,29 @@ def activate_skill(skill_id: str):
     if row is None:
         raise HTTPException(404, "Skill not found.")
     if cur.rowcount != 1:
-        raise HTTPException(409, "Only draft skills can be activated.")
+        raise HTTPException(409, "Only draft or disabled skills can be activated.")
     append_audit(settings.audit_path, "self.skill.activated", {"skill_id": skill_id, "version": row["version"]})
+    return row_skill(row)
+
+
+@router.post("/skills/{skill_id}/disable")
+def disable_skill(skill_id: str):
+    """Disable a skill without deleting its definition or execution history."""
+    con = db()
+    try:
+        cur = con.execute(
+            "UPDATE self_skills SET status='disabled',version=version+1,updated_at=? WHERE id=? AND status='active'",
+            (now(), skill_id),
+        )
+        con.commit()
+        row = con.execute("SELECT * FROM self_skills WHERE id=?", (skill_id,)).fetchone()
+    finally:
+        con.close()
+    if row is None:
+        raise HTTPException(404, "Skill not found.")
+    if cur.rowcount != 1:
+        raise HTTPException(409, "Only active skills can be disabled.")
+    append_audit(settings.audit_path, "self.skill.disabled", {"skill_id": skill_id, "version": row["version"]})
     return row_skill(row)
 
 

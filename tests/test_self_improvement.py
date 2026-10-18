@@ -2,7 +2,7 @@ import pytest
 from fastapi import HTTPException
 from nova.config import settings
 from nova.self_improvement import (
-    SkillCreate, ToolProposalCreate, activate_skill, create_skill,
+    SkillCreate, ToolProposalCreate, activate_skill, disable_skill, create_skill,
     create_tool_proposal, list_skills, list_tool_proposals, review_tool_proposal,
 )
 
@@ -310,3 +310,28 @@ def test_text_stats_rejects_oversized_input_before_execution(isolated_store):
             module.SkillStep(tool="text_stats", input={"text": "x" * 10001}),
         ]))
     assert error.value.status_code == 422
+
+
+def test_active_skill_can_be_disabled_and_reactivated_without_losing_history(isolated_store):
+    created = create_skill(SkillCreate(
+        name="Toggle Skill", description="A skill with explicit enable and disable controls",
+        instructions="Use only safe bounded tools and retain previous run history.",
+    ))
+    active = activate_skill(created["id"])
+    assert active["status"] == "active"
+    disabled = disable_skill(created["id"])
+    assert disabled["status"] == "disabled"
+    assert disabled["version"] == active["version"] + 1
+    reactivated = activate_skill(created["id"])
+    assert reactivated["status"] == "active"
+    assert reactivated["version"] == disabled["version"] + 1
+
+
+def test_disabling_non_active_skill_is_rejected(isolated_store):
+    created = create_skill(SkillCreate(
+        name="Draft Toggle", description="Draft skills cannot be disabled",
+        instructions="Remain a draft until explicitly activated by an operator.",
+    ))
+    with pytest.raises(HTTPException) as error:
+        disable_skill(created["id"])
+    assert error.value.status_code == 409
