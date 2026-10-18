@@ -29,6 +29,11 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - On startup, approvals left in `consuming` after an interrupted write/rollback are moved to `interrupted`, audit-logged, and excluded from automatic replay; operators must inspect the workspace and retained snapshots because a crash may occur before or after the filesystem side effect.
 - SQLite-backed API request rate limiting and a separate failed-authentication budget persist across restarts and are shared by workers using the same database; basic response security headers remain enabled. This is defense in depth, not multi-user RBAC or an edge limiter.
 
+## Recently added operator usability
+- About page command guide for installation, launch, diagnostics, tests, API helper and startup service commands; links to the command and API references.
+- Opt-in Linux systemd per-user startup installer for backend and frontend, with status/uninstall and an explicit flag for user lingering. It does not run privileged commands or open public ports.
+- Runtime API discovery documented through the live OpenAPI schema; environment/security configuration remains outside browser-editable preferences.
+
 ## Remaining work (not yet complete)
 1. Real target-device smoke tests for LiteRT-LM inference, Whisper.cpp and Piper; release-specific runtime version reporting and model/accelerator validation. Follow `docs/REAL_DEVICE_TESTING.md` and record results rather than assuming hardware support.
 2. Citation source/quote verification API and local retrieval benchmark evaluation are implemented. The benchmark reports Recall@k and MRR against operator-labeled chunk IDs; semantic claim-entailment checks and large-corpus performance work remain.
