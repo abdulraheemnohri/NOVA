@@ -59,3 +59,7 @@ A feature is complete only when API, UI controls, persistence, permission checks
 
 - [x] Opt-in GitHub updater with trusted repository checks, validation, rollback on test failure, scheduled checks/install settings, and explicit Linux/systemd reboot control. A process restart is still required when reboot is disabled.
 - [x] WhatsApp Cloud API bridge with signed webhooks, sender allowlisting, up to five external agent endpoints, and explicit non-E2E-encryption disclosure. Meta account setup and public webhook deployment remain operator tasks.
+
+
+## Skill usability improvement
+- Agent Workbench offers four built-in starter skill templates: structured summarizer, read-only code reviewer, project planner, and local knowledge assistant. Template-created skills start disabled and require an explicit operator enable action; skill text remains untrusted guidance and cannot grant permissions.
