@@ -96,3 +96,12 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 ## Interrupted approval recovery
 - Startup changes approvals left in `consuming` to `interrupted` and emits an `approval.recovery.interrupted` audit event.
 - This state is quarantined, not retried automatically: a crash can occur before or after a filesystem change, so inspect the workspace and retained snapshots before taking further action.
+
+
+## Runtime API discovery and configuration
+
+- Fetch the live OpenAPI schema from `GET /openapi.json` and interactive API docs from `/docs` on the local backend. These reflect routes registered by the running version; clients should not assume every optional runtime is installed.
+- Use the authenticated helper for terminal calls: `bash scripts/nova-api.sh GET /api/health`. It reads the local token file and accepts loopback API URLs only.
+- Operator UI preferences are available at `GET/PUT /api/settings/preferences`. Runtime paths, inference endpoint, authentication and security policy are environment-controlled with `NOVA_*` settings; edit the local `.env` and restart the backend to apply them. Do not expose secrets in frontend settings or commit them.
+- The web UI deliberately cannot edit bind addresses, authentication secrets, tool permissions or approval policy. These controls are not dynamically mutable through the preferences endpoint.
+- Review `docs/DEVELOPMENT.md` for the opt-in Linux systemd user service installer. It does not apply to Windows or macOS.
