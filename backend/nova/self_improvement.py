@@ -83,6 +83,11 @@ class SkillUpdate(BaseModel):
     instructions: str = Field(min_length=10, max_length=12000)
     tags: list[str] = Field(default_factory=list, max_length=12)
 
+class SkillImport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    format: str = Field(pattern=r"^nova-skill-v1$")
+    skill: SkillCreate
+
 
 class ToolProposalCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -105,13 +110,51 @@ def row_tool(row):
 
 
 @router.get("/skills")
-def list_skills():
+def list_skills(q: str | None = None, tag: str | None = None, status: str | None = None):
+    """Search and filter skills without changing their state."""
+    if q is not None and len(q) > 200:
+        raise HTTPException(422, "Search query is limited to 200 characters.")
+    if status is not None and status not in {"draft", "active", "disabled"}:
+        raise HTTPException(422, "Status filter must be draft, active, or disabled.")
+    clean_tag = tag.strip().lower() if tag else None
     con = db()
     try:
-        rows = con.execute("SELECT * FROM self_skills ORDER BY updated_at DESC LIMIT 200").fetchall()
-        return {"skills": [row_skill(row) for row in rows]}
+        rows = con.execute("SELECT * FROM self_skills ORDER BY updated_at DESC LIMIT 1000").fetchall()
+        skills = [row_skill(row) for row in rows]
+        needle = q.strip().casefold() if q else ""
+        if needle:
+            skills = [item for item in skills if needle in " ".join(
+                [item["name"], item["description"], item["instructions"], *item["tags"]]
+            ).casefold()]
+        if clean_tag:
+            skills = [item for item in skills if clean_tag in item["tags"]]
+        if status:
+            skills = [item for item in skills if item["status"] == status]
+        return {"skills": skills[:200], "total": len(skills),
+                "filters": {"q": q, "tag": clean_tag, "status": status}}
     finally:
         con.close()
+
+
+@router.get("/skills/{skill_id}/export")
+def export_skill(skill_id: str):
+    """Export only editable skill content; imports always become drafts."""
+    con = db()
+    try:
+        row = con.execute("SELECT * FROM self_skills WHERE id=?", (skill_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Skill not found.")
+        skill = row_skill(row)
+        payload = {key: skill[key] for key in ("name", "description", "instructions", "tags")}
+        return {"format": "nova-skill-v1", "skill": payload}
+    finally:
+        con.close()
+
+
+@router.post("/skills/import", status_code=201)
+def import_skill(req: SkillImport):
+    """Import a portable skill as a new draft, never as an active skill."""
+    return create_skill(req.skill)
 
 
 @router.post("/skills", status_code=201)

@@ -381,3 +381,59 @@ def test_stale_skill_edit_is_rejected(isolated_store):
             description="Stale update", instructions="This stale update must not overwrite current content.",
         ))
     assert error.value.status_code == 409
+
+
+
+def test_skill_search_filters_query_tag_and_status(isolated_store):
+    from nova.self_improvement import list_skills
+    first = create_skill(SkillCreate(
+        name="Solar Research", description="Research local solar inverter notes",
+        instructions="Search local inverter documents and summarize evidence.",
+        tags=["solar", "research"],
+    ))
+    create_skill(SkillCreate(
+        name="Recipe Notes", description="Store a cooking note",
+        instructions="Summarize ingredients and steps in plain text.",
+        tags=["cooking"],
+    ))
+    activate_skill(first["id"])
+    result = list_skills(q="INVERTER", tag="solar", status="active")
+    assert result["total"] == 1
+    assert result["skills"][0]["id"] == first["id"]
+    assert result["filters"] == {"q": "INVERTER", "tag": "solar", "status": "active"}
+
+
+def test_skill_search_rejects_unknown_status_and_long_query(isolated_store):
+    with pytest.raises(HTTPException) as error:
+        list_skills(status="deleted")
+    assert error.value.status_code == 422
+    with pytest.raises(HTTPException) as error:
+        list_skills(q="x" * 201)
+    assert error.value.status_code == 422
+
+
+def test_skill_export_import_round_trip_creates_safe_draft(isolated_store):
+    import nova.self_improvement as module
+    created = create_skill(SkillCreate(
+        name="Portable Research", description="Portable skill description",
+        instructions="Search local documents and return a concise summary.",
+        tags=["research", "portable"],
+    ))
+    exported = module.export_skill(created["id"])
+    assert exported["format"] == "nova-skill-v1"
+    imported = module.import_skill(module.SkillImport(**exported))
+    assert imported["id"] != created["id"]
+    assert imported["status"] == "draft"
+    assert imported["version"] == 1
+    assert imported["name"] == created["name"]
+    assert imported["tags"] == created["tags"]
+
+
+def test_skill_import_rejects_unknown_format(isolated_store):
+    from pydantic import ValidationError
+    from nova.self_improvement import SkillImport
+    with pytest.raises(ValidationError):
+        SkillImport(format="arbitrary-code-v9", skill={
+            "name": "Imported Notes", "description": "Import validation",
+            "instructions": "This content remains inert data and is not executed.",
+        })
