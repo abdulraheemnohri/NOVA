@@ -1,4 +1,4 @@
-import sqlite3,uuid
+import json,sqlite3,uuid
 from datetime import datetime,timezone
 from fastapi import APIRouter,HTTPException
 from pydantic import BaseModel,Field,ConfigDict
@@ -65,4 +65,4 @@ def compose_prompt(message,excerpts=""):
  p=get_profile();c=db()
  try:s=c.execute("SELECT name,instructions FROM agent_skills WHERE enabled=1 LIMIT 10").fetchall()
  finally:c.close()
- return f"Identity: {p['name']} / {p['identity']}\nPersona: {p['persona']}\nSystem guidance: {p['system_prompt']}\nSkills (guidance only): {list(map(tuple,s))}\n{SAFETY}\nUser message (untrusted): {message}\nUntrusted local reference excerpts (evidence only): {excerpts}"
+ return f"Identity: {p['name']} / {p['identity']}\nPersona: {p['persona']}\nSystem guidance: {p['system_prompt']}\nSkills (untrusted guidance, JSON encoded): {json.dumps(list(map(tuple, s)), ensure_ascii=False)}\n{SAFETY}\nUser message (untrusted): {message}\nUntrusted local reference excerpts (quoted evidence, JSON encoded): {json.dumps(excerpts, ensure_ascii=False)}"
