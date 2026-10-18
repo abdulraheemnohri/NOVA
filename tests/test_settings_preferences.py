@@ -63,3 +63,42 @@ def test_preferences_accept_inclusive_boundaries():
     assert value.chat_max_tokens == 64
     assert value.chat_temperature == 0.0
     assert value.auto_refresh_seconds == 300
+
+
+def test_feature_settings_persist_and_audit(tmp_path, monkeypatch):
+    from nova.settings_preferences import (
+        FeatureSettingsUpdate, DEFAULT_FEATURES, get_feature_settings, update_feature_settings,
+    )
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    assert get_feature_settings() == DEFAULT_FEATURES
+    updated = update_feature_settings(FeatureSettingsUpdate(
+        local_retrieval_enabled=False,
+        model_hub_enabled=False,
+        model_downloads_enabled=False,
+        whisper_enabled=False,
+        piper_enabled=True,
+        ocr_enabled=False,
+        onnx_runtime_enabled=False,
+        max_model_download_bytes=50_000_000,
+    ))
+    assert updated["local_retrieval_enabled"] is False
+    assert updated["model_hub_enabled"] is False
+    assert updated["model_downloads_enabled"] is False
+    assert updated["whisper_enabled"] is False
+    assert updated["piper_enabled"] is True
+    assert updated["ocr_enabled"] is False
+    assert updated["onnx_runtime_enabled"] is False
+    assert updated["max_model_download_bytes"] == 50_000_000
+    assert get_feature_settings() == updated
+    valid, count = verify_audit(settings.audit_path)
+    assert valid is True
+    assert count == 1
+
+
+def test_feature_settings_reject_unknown_fields_and_bad_download_limit():
+    from nova.settings_preferences import FeatureSettingsUpdate
+    with pytest.raises(ValidationError):
+        FeatureSettingsUpdate(unknown_toggle=True)
+    with pytest.raises(ValidationError):
+        FeatureSettingsUpdate(max_model_download_bytes=0)
