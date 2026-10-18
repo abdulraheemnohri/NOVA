@@ -290,10 +290,10 @@ def test_text_stats_is_registered_and_bounded_skill_primitive(isolated_store):
     ))
     activate_skill(created["id"])
     result = module.run_skill(created["id"], module.SkillRunRequest(steps=[
-        module.SkillStep(tool="text_stats", input={"text": "NOVA offline\\nverified agent"}),
+        module.SkillStep(tool="text_stats", input={"text": "NOVA offline\nverified agent"}),
     ]))
     assert result["status"] == "succeeded"
-    assert result["results"][0]["result"]["characters"] == len("NOVA offline\\nverified agent")
+    assert result["results"][0]["result"]["characters"] == len("NOVA offline\nverified agent")
     assert result["results"][0]["result"]["words"] == 4
     assert result["results"][0]["result"]["lines"] == 2
 
