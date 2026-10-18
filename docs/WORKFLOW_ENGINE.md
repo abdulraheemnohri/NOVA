@@ -1,6 +1,6 @@
 # Workflow Engine
 
-The persisted local workflow engine uses `/api/workflows`:
+The persisted local workflow engine uses `/api/workflows`. The **Workflow Engine** dashboard page can create bounded definitions, run them, refresh execution history, and request cancellation for running instances.
 - `GET /api/workflows`: list saved definitions.
 - `POST /api/workflows`: save a named workflow with 1–10 structured steps.
 - `POST /api/workflows/{workflow_id}/run`: run a definition after whole-plan preflight.
