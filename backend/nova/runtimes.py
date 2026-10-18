@@ -11,6 +11,8 @@ import importlib.metadata
 import importlib.util
 import json
 import os
+import platform
+import re
 import sqlite3
 import shutil
 import subprocess
@@ -754,3 +756,131 @@ async def transcribe_with_whisper(file: UploadFile = File(...)):
                 path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+class LiteRTAutostartRequest(BaseModel):
+    enabled: bool
+    enable_linger: bool = False
+
+
+def _litert_service_unit_path() -> Path:
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))).expanduser()
+    unit_dir = config_home / "systemd" / "user"
+    if unit_dir.is_symlink():
+        raise HTTPException(403, "systemd user unit directory must not be a symbolic link.")
+    unit_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return unit_dir / "nova-litert-lm.service"
+
+
+def _litert_service_status() -> dict[str, Any]:
+    supported = platform.system() == "Linux" and shutil.which("systemctl") is not None
+    enabled = active = False
+    if supported:
+        enabled = subprocess.run(
+            ["systemctl", "--user", "is-enabled", "nova-litert-lm.service"],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).returncode == 0
+        active = subprocess.run(
+            ["systemctl", "--user", "is-active", "nova-litert-lm.service"],
+            capture_output=True, text=True, timeout=5, check=False,
+        ).returncode == 0
+    env_file = Path.cwd() / ".env"
+    command_in_env_file = False
+    try:
+        command_in_env_file = any(
+            re.match(r"^\\s*NOVA_LITERT_LM_COMMAND\\s*=", line) and not line.lstrip().startswith("#")
+            for line in env_file.read_text(encoding="utf-8").splitlines()
+        )
+    except OSError:
+        pass
+    return {
+        "supported": supported,
+        "configured": bool(settings.litert_lm_command.strip()) and command_in_env_file,
+        "enabled": enabled,
+        "active": active,
+        "service": "nova-litert-lm.service",
+        "platform": platform.system(),
+        "note": "The exact server command must be operator-configured in the local .env. The service launcher uses argv without a shell. Confirm the command binds only to loopback and matches NOVA_LITERT_BASE_URL.",
+    }
+
+
+@router.get("/litert/autostart")
+def get_litert_autostart():
+    return _litert_service_status()
+
+
+@router.put("/litert/autostart")
+def set_litert_autostart(req: LiteRTAutostartRequest):
+    """Install/enable or disable a user-level systemd unit for the operator-configured LiteRT-LM command."""
+    if platform.system() != "Linux" or shutil.which("systemctl") is None:
+        raise HTTPException(501, "LiteRT-LM automatic startup controls require Linux with systemd.")
+    if not req.enabled:
+        subprocess.run(
+            ["systemctl", "--user", "disable", "--now", "nova-litert-lm.service"],
+            capture_output=True, text=True, timeout=20, check=False,
+        )
+        unit_path = _litert_service_unit_path()
+        try:
+            unit_path.unlink(missing_ok=True)
+        except OSError as exc:
+            raise HTTPException(500, "Could not remove the LiteRT-LM user service unit.") from exc
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, text=True, timeout=10, check=False)
+        append_audit(settings.audit_path, "runtime.litert.autostart.disabled", {"service": "nova-litert-lm.service"})
+        return _litert_service_status()
+
+    status = _litert_service_status()
+    if not status["configured"]:
+        raise HTTPException(
+            422,
+            "Configure NOVA_LITERT_LM_COMMAND in the local .env first. Use the exact command documented for your installed LiteRT-LM version; do not use a shell wrapper.",
+        )
+    root = Path(__file__).resolve().parents[2]
+    python = root / ".venv" / "bin" / "python"
+    launcher = root / "scripts" / "run_litert_lm.py"
+    if not python.is_file() or not launcher.is_file():
+        raise HTTPException(409, "The project virtual environment or LiteRT-LM launcher is missing.")
+    if req.enable_linger:
+        user = os.environ.get("USER", "").strip()
+        if not user or not shutil.which("loginctl"):
+            raise HTTPException(501, "User lingering requires loginctl and a known current user.")
+        linger = subprocess.run(
+            ["loginctl", "enable-linger", user], capture_output=True, text=True, timeout=15, check=False,
+        )
+        if linger.returncode != 0:
+            raise HTTPException(409, "Could not enable user lingering. The unit can still start after login; inspect local loginctl permissions.")
+    unit_path = _litert_service_unit_path()
+    unit_text = (
+        "[Unit]\\n"
+        "Description=NOVA LiteRT-LM local inference runtime\\n"
+        "After=network.target\\n\\n"
+        "[Service]\\n"
+        "Type=simple\\n"
+        f"WorkingDirectory={root}\\n"
+        f"ExecStart={python} {launcher}\\n"
+        "Restart=on-failure\\n"
+        "RestartSec=5\\n"
+        "UMask=0077\\n\\n"
+        "[Install]\\n"
+        "WantedBy=default.target\\n"
+    )
+    try:
+        unit_path.write_text(unit_text, encoding="utf-8")
+        os.chmod(unit_path, 0o600)
+    except OSError as exc:
+        raise HTTPException(500, "Could not write the LiteRT-LM user service unit.") from exc
+    reload_result = subprocess.run(
+        ["systemctl", "--user", "daemon-reload"], capture_output=True, text=True, timeout=15, check=False,
+    )
+    if reload_result.returncode != 0:
+        raise HTTPException(409, "systemd could not reload user units; inspect local systemd status.")
+    start_result = subprocess.run(
+        ["systemctl", "--user", "enable", "--now", "nova-litert-lm.service"],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    if start_result.returncode != 0:
+        append_audit(settings.audit_path, "runtime.litert.autostart.failed", {"service": "nova-litert-lm.service", "returncode": start_result.returncode})
+        raise HTTPException(409, "systemd could not enable/start LiteRT-LM. Inspect systemctl --user status nova-litert-lm.service.")
+    append_audit(settings.audit_path, "runtime.litert.autostart.enabled", {
+        "service": "nova-litert-lm.service", "enable_linger": req.enable_linger,
+    })
+    return _litert_service_status()
