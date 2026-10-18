@@ -66,3 +66,48 @@ def test_missing_workflow_returns_404(isolated_workflows):
     with pytest.raises(HTTPException) as err:
         engine.run_workflow("missing")
     assert err.value.status_code == 404
+
+
+def test_running_workflow_can_be_cancelled_between_checkpoints(isolated_workflows, monkeypatch):
+    definition = engine.create_workflow(engine.WorkflowDefinitionCreate(
+        name="Cancelable workflow",
+        steps=[
+            engine.WorkflowStep(tool="calculator", input={"expression": "1 + 1"}),
+            engine.WorkflowStep(tool="calculator", input={"expression": "2 + 2"}),
+            engine.WorkflowStep(tool="calculator", input={"expression": "3 + 3"}),
+        ],
+    ))
+    execute = engine._execute
+    requested = []
+
+    def execute_then_request_cancel(step):
+        result = execute(step)
+        con = engine._db()
+        try:
+            run_id = con.execute(
+                "SELECT id FROM workflow_runs WHERE status='running' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()["id"]
+        finally:
+            con.close()
+        if not requested:
+            requested.append(engine.cancel_run(run_id))
+        return result
+
+    monkeypatch.setattr(engine, "_execute", execute_then_request_cancel)
+    run = engine.run_workflow(definition["id"])
+    assert requested[0]["status"] == "cancellation_requested"
+    assert run["status"] == "cancelled"
+    assert len(run["steps"]) == 1
+    assert run["steps"][0]["status"] == "success"
+    assert run["finished_at"] is not None
+
+
+def test_cannot_cancel_finished_workflow(isolated_workflows):
+    definition = engine.create_workflow(engine.WorkflowDefinitionCreate(
+        name="Finished workflow",
+        steps=[engine.WorkflowStep(tool="calculator", input={"expression": "1 + 1"})],
+    ))
+    run = engine.run_workflow(definition["id"])
+    with pytest.raises(HTTPException) as err:
+        engine.cancel_run(run["id"])
+    assert err.value.status_code == 409
