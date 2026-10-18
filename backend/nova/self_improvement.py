@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/self", tags=["self improvement"])
 SAFE_PRIMITIVES = {
     "calculator": {"expression": "string"},
     "knowledge_search": {"query": "string"},
+    "text_stats": {"text": "string"},
 }
 
 
@@ -246,6 +247,13 @@ def _validate_step(step: SkillStep) -> dict:
         if not query or len(query) > 1000:
             raise HTTPException(422, "Knowledge query must contain 1–1000 characters.")
         return {"tool": step.tool, "input": {"query": query}, "retries": step.retries}
+    if step.tool == "text_stats":
+        if set(step.input) != {"text"}:
+            raise HTTPException(422, "Text statistics step requires exactly the text field.")
+        value = step.input["text"]
+        if len(value) > 10000:
+            raise HTTPException(422, "Text input is limited to 10000 characters.")
+        return {"tool": step.tool, "input": {"text": value}, "retries": step.retries}
     raise HTTPException(422, "Unsupported skill tool; default deny.")
 
 
@@ -362,8 +370,11 @@ def _continue_skill_run(skill_id: str, run_id: str, planned: list[dict], results
                 try:
                     if step["tool"] == "calculator":
                         result = {"result": calculator(step["input"]["expression"])}
-                    else:
+                    elif step["tool"] == "knowledge_search":
                         result = search_knowledge(SearchRequest(query=step["input"]["query"], limit=5))
+                    else:
+                        value = step["input"]["text"]
+                        result = {"characters": len(value), "words": len(value.split()), "lines": len(value.splitlines()) if value else 0}
                     attempt["status"] = "succeeded"
                     attempt["finished_at"] = now()
                     last_error = None

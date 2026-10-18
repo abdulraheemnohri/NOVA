@@ -105,3 +105,9 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - Operator UI preferences are available at `GET/PUT /api/settings/preferences`. Runtime paths, inference endpoint, authentication and security policy are environment-controlled with `NOVA_*` settings; edit the local `.env` and restart the backend to apply them. Do not expose secrets in frontend settings or commit them.
 - The web UI deliberately cannot edit bind addresses, authentication secrets, tool permissions or approval policy. These controls are not dynamically mutable through the preferences endpoint.
 - Review `docs/DEVELOPMENT.md` for the opt-in Linux systemd user service installer. It does not apply to Windows or macOS.
+
+
+## Bounded local text analysis tool
+- `GET /agent/tools` lists registered safe primitives and their fixed input schemas.
+- `POST /agent/tools/execute` supports `text_stats` with `{"name":"text_stats","input":{"text":"..."}}`; it returns character, word, and line counts for up to 10,000 characters. This operation is local, deterministic, and read-only.
+- Active self-created skills can use the same `text_stats` primitive in explicit structured workflow steps. All steps are preflighted before execution, and generated code is never run.
