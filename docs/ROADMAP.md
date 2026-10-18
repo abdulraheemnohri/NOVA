@@ -38,7 +38,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 7. Streaming audio and adversarial content-isolation tests. Scanned-PDF OCR is now opt-in and requires Poppler + Tesseract. PDF/DOCX text extraction, explicit Tesseract image OCR, and opt-in scanned-PDF OCR are supported when their optional local dependencies are installed.
 8. Broader operational settings validation and safe editable settings persistence; the bounded workbench preference subset is implemented.
 9. Multi-user RBAC, CSRF protections for browser-session deployments, distributed/edge rate-limit enforcement and encrypted sensitive storage.
-10. Workflow builder, multi-agent state machine, critic/verifier, prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware. Skill execution currently has a deliberately small allowlist and does not execute arbitrary generated code.
+10. Multi-agent state machine, critic/verifier, adversarial prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware. The bounded local workflow builder, conditional execution, checkpoints, run history, and cancellation controls are implemented. Skill execution currently has a deliberately small allowlist and does not execute arbitrary generated code.
 
 ## Definition of done
 A feature is complete only when API, UI controls, persistence, permission checks, audit events, tests, docs, and offline behavior exist and pass CI. Never claim GPU/NPU or model compatibility without a real target-device test.
