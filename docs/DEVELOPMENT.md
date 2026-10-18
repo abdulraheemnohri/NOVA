@@ -66,9 +66,24 @@ The helper reads `data/api.token` locally, accepts only loopback API base URLs, 
 
 For backend tests without frontend dependencies, activate `.venv` and run `python -m pytest -q`. For the full local gate run `bash scripts/check.sh`.
 
+## Automatic dependency and runtime installation
+
+Use the cross-platform installer from the repository root:
+
+```bash
+python scripts/install_all.py
+```
+
+On Windows, use `py scripts/install_all.py` if that is how Python 3.11+ is registered. The installer recursively discovers every project-owned `requirements*.txt` file (excluding virtual environments, `node_modules`, Git metadata and generated build/cache folders), installs them into `.venv`, and installs the frontend dependencies from `frontend/package.json`. It also installs the supported system tools Node.js/npm, FFmpeg and Tesseract OCR using apt, dnf, pacman, Homebrew or winget when available. Use `--dry-run` to review the commands or `--skip-system-runtimes` to install Python/npm packages only.
+
+The installer does not download model weights, voices, or execute runtime binaries. Whisper.cpp and Piper require compatible binaries and local model/voice assets, which vary by OS and CPU and must be configured explicitly. LiteRT-LM installation/server setup remains version-specific; configure and validate it using the instructions for the LiteRT-LM release used on the target device.
+
+All installed runtimes remain idle until a feature explicitly needs one. The app must not launch every runtime at startup, and optional runtimes are never chat-inference fallbacks: LiteRT-LM remains the only chat-inference runtime. Independent eligible tasks may run concurrently, but each task should start/use only its designated runtime and avoid duplicate background processes.
+
 ## Optional local engines
 
-The Runtimes page provides **Installation command previews** for the supported optional Debian/Ubuntu packages FFmpeg and Tesseract OCR + Pillow. These are display-only allowlisted commands: NOVA never executes package-manager commands, even if a legacy execution flag is set. Copy and review a command, then run it manually if desired. Whisper.cpp and Piper are external local executables and require compatible local model/voice files; they cannot be reliably installed on every CPU/OS through a generic apt command. Configure their paths in `.env`; run `bash scripts/check_optional_runtimes.sh` to inspect availability. ONNX Runtime can be installed with `python -m pip install -r requirements-optional.txt` when needed. The app's primary chat runtime remains LiteRT-LM; no optional runtime is an automatic chat fallback.
+The Runtimes page provides **Installation command previews** for supported optional Debian/Ubuntu packages FFmpeg and Tesseract OCR + Pillow. Those UI previews are display-only allowlisted commands: the web API never executes package-manager commands, even if a legacy execution flag is set. The separate operator-invoked `scripts/install_all.py` installer can install supported OS packages when run directly in a trusted local terminal. Review its plan with `--dry-run` first. Whisper.cpp and Piper are external local executables and require compatible local model/voice files; they cannot be reliably installed on every CPU/OS through a generic apt command. Configure their paths in `.env`; run `bash scripts/check_optional_runtimes.sh` to inspect availability. ONNX Runtime can be installed with `python -m pip install -r requirements-optional.txt` when needed. The app's primary chat runtime remains LiteRT-LM; no optional runtime is an automatic chat fallback.
+
 
 ## LiteRT-LM slow-inference timeout
 
