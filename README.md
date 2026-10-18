@@ -70,6 +70,11 @@ Open **Diagnostics** in the dashboard or call `GET /api/diagnostics` with the lo
 
 ## Local model runtimes and speech
 
+
+### Installation command previews
+
+The Runtimes page can display fixed, allowlisted Debian/Ubuntu commands for supported optional tools (currently FFmpeg and Tesseract OCR with Pillow). NOVA never executes `apt`, `apt-get`, `sudo`, shell commands, or package installations, even if the legacy `NOVA_RUNTIME_INSTALL_EXECUTION_ENABLED` environment variable is set. Copy a reviewed command and run it manually in your own terminal. Whisper.cpp and Piper require upstream binaries and compatible model/voice files, so NOVA does not invent a generic apt command for them.
+
 The **Runtimes** page inventories LiteRT-LM, whisper.cpp, Piper, ONNX Runtime, TensorFlow Lite/LiteRT Python packages, llama.cpp and Transformers. LiteRT-LM remains the only chat runtime; optional runtimes are task-scoped and never silent fallbacks. Local whisper.cpp WAV transcription is available through `POST /api/runtimes/whisper/transcribe`; Piper WAV synthesis is available through `POST /api/runtimes/piper/synthesize`. ONNX/TFLite model execution remains discovery-only until task-specific adapters are implemented. Setup, environment variables, security boundaries and model licensing notes are in `docs/MODEL_RUNTIMES.md`.
 
 ## Security and current limits
