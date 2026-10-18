@@ -111,3 +111,30 @@ def test_cannot_cancel_finished_workflow(isolated_workflows):
     with pytest.raises(HTTPException) as err:
         engine.cancel_run(run["id"])
     assert err.value.status_code == 409
+
+def test_cancel_requested_during_final_step_is_not_lost(isolated_workflows, monkeypatch):
+    definition = engine.create_workflow(engine.WorkflowDefinitionCreate(
+        name="Cancel final step",
+        steps=[engine.WorkflowStep(tool="calculator", input={"expression": "1 + 1"})],
+    ))
+    execute = engine._execute
+    requested = []
+
+    def execute_then_cancel_final_step(step):
+        result = execute(step)
+        con = engine._db()
+        try:
+            run_id = con.execute(
+                "SELECT id FROM workflow_runs WHERE status='running' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()["id"]
+        finally:
+            con.close()
+        requested.append(engine.cancel_run(run_id))
+        return result
+
+    monkeypatch.setattr(engine, "_execute", execute_then_cancel_final_step)
+    run = engine.run_workflow(definition["id"])
+    assert requested[0]["status"] == "cancellation_requested"
+    assert run["status"] == "cancelled"
+    assert len(run["steps"]) == 1
+    assert run["finished_at"] is not None
