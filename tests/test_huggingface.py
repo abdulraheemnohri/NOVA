@@ -112,3 +112,27 @@ def test_huggingface_download_is_explicit_bounded_and_audited(monkeypatch, tmp_p
             "file_path": str(artifact), "format": "litertlm", "sha256": data["sha256"],
         })
     assert registered.status_code == 200, registered.text
+
+def test_huggingface_cached_artifact_still_obeys_current_size_limit(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "huggingface_max_download_bytes", 8)
+    monkeypatch.setattr(huggingface, "_hub_json", lambda url: {
+        "id": "example/model",
+        # Hub metadata can omit file size, so the local cache must enforce the cap too.
+        "siblings": [{"rfilename": "model.litertlm"}],
+    })
+    cached = tmp_path / "models" / "example--model" / "main" / "model.litertlm"
+    cached.parent.mkdir(parents=True)
+    cached.write_bytes(b"x" * 9)
+    monkeypatch.setattr(
+        huggingface,
+        "_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("cache hit must not download")),
+    )
+
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.post("/api/models/huggingface/download", json={
+            "repo_id": "example/model", "filename": "model.litertlm", "revision": "main",
+        })
+
+    assert response.status_code == 413
+    assert "Cached artifact exceeds" in response.json()["detail"]
