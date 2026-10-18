@@ -33,7 +33,11 @@ def _db():
         id TEXT PRIMARY KEY, workflow_id TEXT NOT NULL, status TEXT NOT NULL,
         steps_json TEXT NOT NULL, current_step INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT,
+        cancel_requested INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(workflow_id) REFERENCES workflow_definitions(id))""")
+    columns = {str(row[1]) for row in con.execute("PRAGMA table_info(workflow_runs)").fetchall()}
+    if "cancel_requested" not in columns:
+        con.execute("ALTER TABLE workflow_runs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0")
     con.commit()
     return con
 
@@ -153,6 +157,28 @@ def _execute(step):
     return search_knowledge(SearchRequest(query=step["input"]["query"], limit=5))
 
 
+@router.post("/runs/{run_id}/cancel")
+def cancel_run(run_id: str):
+    """Request cancellation; an active primitive is allowed to finish before the next checkpoint."""
+    con = _db()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute("SELECT status FROM workflow_runs WHERE id=?", (run_id,)).fetchone()
+        if row is None:
+            raise HTTPException(404, "Workflow run not found.")
+        if row["status"] != "running":
+            raise HTTPException(409, "Only a running workflow can be cancelled.")
+        con.execute(
+            "UPDATE workflow_runs SET cancel_requested=1,updated_at=? WHERE id=? AND status='running'",
+            (_now(), run_id),
+        )
+        con.commit()
+    finally:
+        con.close()
+    append_audit(settings.audit_path, "workflow.cancel_requested", {"run_id": run_id})
+    return {"id": run_id, "status": "cancellation_requested"}
+
+
 @router.post("/{workflow_id}/run", status_code=201)
 def run_workflow(workflow_id: str):
     con = _db()
@@ -176,7 +202,16 @@ def run_workflow(workflow_id: str):
     append_audit(settings.audit_path, "workflow.run_started", {
         "run_id": run_id, "workflow_id": workflow_id, "step_count": len(steps)})
     try:
+        cancelled = False
         for index, step in enumerate(steps):
+            con = _db()
+            try:
+                state = con.execute("SELECT cancel_requested FROM workflow_runs WHERE id=?", (run_id,)).fetchone()
+            finally:
+                con.close()
+            if state is None or bool(state["cancel_requested"]):
+                cancelled = True
+                break
             run = (step["when"] == "always"
                    or step["when"] == "on_success" and last_status == "success"
                    or step["when"] == "on_failure" and last_status == "failure")
@@ -201,7 +236,8 @@ def run_workflow(workflow_id: str):
             append_audit(settings.audit_path, "workflow.step_finished", {
                 "run_id": run_id, "workflow_id": workflow_id, "step": index + 1,
                 "tool": step["tool"], "status": record["status"]})
-        status, finished = ("completed_with_errors" if any_failure else "succeeded"), _now()
+        status = "cancelled" if cancelled else ("completed_with_errors" if any_failure else "succeeded")
+        finished = _now()
         con = _db()
         try:
             con.execute("UPDATE workflow_runs SET status=?,steps_json=?,current_step=?,updated_at=?,finished_at=? WHERE id=? AND status='running'",
