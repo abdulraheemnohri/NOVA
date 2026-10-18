@@ -22,6 +22,11 @@ SAFE_PRIMITIVES = {
     "calculator": {"expression": "string"},
     "knowledge_search": {"query": "string"},
     "text_stats": {"text": "string"},
+    "json_format": {"json": "string"},
+    "base64_encode": {"text": "string"},
+    "base64_decode": {"encoded": "string"},
+    "csv_summary": {"csv": "string"},
+    "markdown_outline": {"markdown": "string"},
 }
 
 

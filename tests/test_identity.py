@@ -85,3 +85,22 @@ def test_agent_skill_mutations_do_not_audit_missing_skills(tmp_path, monkeypatch
         del_skill("missing-skill")
     assert delete_error.value.status_code == 404
     assert not audit_path.exists()
+
+
+def test_active_self_improvement_skills_are_injected_only_when_enabled(tmp_path, monkeypatch):
+    from nova.self_improvement import SkillCreate as SelfSkillCreate, create_skill, activate_skill
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    get_profile()
+    created = create_skill(SelfSkillCreate(
+        name="Local report skill",
+        description="Summarize local findings",
+        instructions="Summarize the provided local evidence and state uncertainty.",
+        tags=["reports"],
+    ))
+    activate_skill(created["id"])
+    enabled_prompt = compose_prompt("Prepare a report.", include_skills=True)
+    disabled_prompt = compose_prompt("Prepare a report.", include_skills=False)
+    assert "Local report skill" in enabled_prompt
+    assert "Summarize the provided local evidence" in enabled_prompt
+    assert "Local report skill" not in disabled_prompt

@@ -63,8 +63,12 @@ def del_skill(sid:str):
  finally:c.close()
  append_audit(settings.audit_path,"agent.skill.deleted",{"skill_id":sid})
  return {"deleted":True}
-def compose_prompt(message,excerpts=""):
+def compose_prompt(message,excerpts="",include_skills=True,extra_guidance=""):
  p=get_profile();c=db()
- try:s=c.execute("SELECT name,instructions FROM agent_skills WHERE enabled=1 LIMIT 10").fetchall()
+ try:
+  s=c.execute("SELECT name,instructions FROM agent_skills WHERE enabled=1 LIMIT 10").fetchall() if include_skills else []
+  if include_skills:
+   try:s += c.execute("SELECT name,instructions FROM self_skills WHERE status='active' ORDER BY updated_at DESC LIMIT 10").fetchall()
+   except sqlite3.OperationalError:pass
  finally:c.close()
- return f"Identity: {p['name']} / {p['identity']}\nPersona: {p['persona']}\nSystem guidance: {p['system_prompt']}\nSkills (untrusted guidance, JSON encoded): {json.dumps(list(map(tuple, s)), ensure_ascii=False)}\n{SAFETY}\nUser message (untrusted, JSON encoded): {json.dumps(message, ensure_ascii=False)}\nUntrusted local reference excerpts (quoted evidence, JSON encoded): {json.dumps(excerpts, ensure_ascii=False)}"
+ return f"Identity: {p['name']} / {p['identity']}\nPersona: {p['persona']}\nSystem guidance: {p['system_prompt']}\nSkills (untrusted guidance, JSON encoded): {json.dumps(list(map(tuple, s)), ensure_ascii=False)}\n{SAFETY}\n{extra_guidance}\nUser message (untrusted, JSON encoded): {json.dumps(message, ensure_ascii=False)}\nUntrusted local reference excerpts (quoted evidence, JSON encoded): {json.dumps(excerpts, ensure_ascii=False)}"

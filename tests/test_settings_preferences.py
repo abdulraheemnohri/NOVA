@@ -102,3 +102,37 @@ def test_feature_settings_reject_unknown_fields_and_bad_download_limit():
         FeatureSettingsUpdate(unknown_toggle=True)
     with pytest.raises(ValidationError):
         FeatureSettingsUpdate(max_model_download_bytes=0)
+
+
+def test_ai_capabilities_persist_and_project_settings_stay_human_only(tmp_path, monkeypatch):
+    from nova.settings_preferences import (
+        DEFAULT_AI_CAPABILITIES, AICapabilitiesUpdate, get_ai_capabilities,
+        update_ai_capabilities,
+    )
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    assert get_ai_capabilities() == DEFAULT_AI_CAPABILITIES
+    updated = update_ai_capabilities(AICapabilitiesUpdate(
+        ai_tool_calls_enabled=False,
+        ai_skill_use_enabled=True,
+        ai_skill_generation_enabled=True,
+        ai_tool_proposal_enabled=True,
+        ai_runtime_management_enabled=False,
+        ai_runtime_configuration_enabled=True,
+    ))
+    assert updated["ai_tool_calls_enabled"] is False
+    assert updated["ai_runtime_management_enabled"] is False
+    assert updated["ai_runtime_configuration_enabled"] is True
+    assert updated["ai_project_settings_access"] is False
+    assert get_ai_capabilities() == updated
+    valid, count = verify_audit(settings.audit_path)
+    assert valid is True
+    assert count == 1
+
+
+def test_ai_capabilities_reject_unknown_project_settings_access():
+    from nova.settings_preferences import AICapabilitiesUpdate
+    with pytest.raises(ValidationError):
+        AICapabilitiesUpdate(ai_project_settings_access=True)
+    with pytest.raises(ValidationError):
+        AICapabilitiesUpdate(allow_project_settings=True)
