@@ -102,9 +102,20 @@ def dispatch(sender,text,mid):
  answer=post(u.geturl(),{"message":body,"channel":"whatsapp","sender":sender,"agent":agent["slug"],"message_id":mid},{"Authorization":"Bearer "+secret},30).get("reply")
  if not isinstance(answer,str) or not answer.strip():raise RuntimeError("Agent response must contain a non-empty reply.")
  send(sender,answer);append_audit(settings.audit_path,"whatsapp.replied",{"message_id":mid,"agent_id":agent["id"],"reply_sha256":hashlib.sha256(answer.encode()).hexdigest()})
+async def read_webhook_body(request: Request, max_bytes: int = 1_000_000) -> bytes:
+ chunks = []
+ size = 0
+ async for chunk in request.stream():
+  size += len(chunk)
+  if size > max_bytes:
+   raise HTTPException(413, "Webhook payload exceeds the 1 MB limit.")
+  chunks.append(chunk)
+ return b"".join(chunks)
+
+
 @router.post("/webhook")
 async def webhook(request:Request):
- raw=await request.body();secret=env("NOVA_WHATSAPP_APP_SECRET");sig=request.headers.get("x-hub-signature-256","");expected="sha256="+hmac.new(secret.encode(),raw,"sha256").hexdigest() if secret else ""
+ raw=await read_webhook_body(request);secret=env("NOVA_WHATSAPP_APP_SECRET");sig=request.headers.get("x-hub-signature-256","");expected="sha256="+hmac.new(secret.encode(),raw,"sha256").hexdigest() if secret else ""
  if not expected or not hmac.compare_digest(sig,expected):raise HTTPException(401,"Invalid webhook signature.")
  try:data=json.loads(raw)
  except json.JSONDecodeError as e:raise HTTPException(400,"Invalid JSON.") from e
