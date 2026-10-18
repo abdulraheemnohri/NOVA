@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from nova.audit import append_audit
@@ -227,6 +228,8 @@ def read_live_status() -> dict[str, Any]:
     active_model_for_status = active_model_id
 
     valid, event_count = verify_audit(settings.audit_path)
+    endpoint = urlsplit(settings.litert_base_url)
+    safe_endpoint = urlunsplit((endpoint.scheme, endpoint.netloc.rsplit("@", 1)[-1], endpoint.path, "", ""))
     try:
         inventory = runtime_inventory()
     except Exception as exc:
@@ -247,7 +250,7 @@ def read_live_status() -> dict[str, Any]:
             "audit_log_path": str(settings.audit_path),
             "api_token_file": str(settings.api_token_file),
             "chat_runtime": "LiteRT-LM only",
-            "LiteRT_endpoint": settings.litert_base_url,
+            "LiteRT_endpoint": safe_endpoint,
             "configured_model": active_model_for_status(),
             "chat_timeout_seconds": settings.litert_chat_timeout_seconds,
             "write_approval_required": settings.require_approval_for_writes,
