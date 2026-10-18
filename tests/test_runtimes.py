@@ -307,3 +307,25 @@ def test_runtime_preflight_is_read_only_and_keeps_litert_as_primary(tmp_path, mo
         assert checks["litert-lm"]["severity"] == "critical"
         assert "Start/configure" in checks["litert-lm"]["action"]
         assert checks["whisper-cpp"]["severity"] == "recommended"
+
+
+def test_runtime_install_preview_is_allowlisted_and_never_executes(tmp_path, monkeypatch):
+    from nova import runtimes
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("preview must not execute commands")
+
+    monkeypatch.setattr(runtimes.subprocess, "run", forbidden)
+    with _client(tmp_path, monkeypatch) as (client, headers):
+        response = client.post("/api/runtimes/operations/preview", headers=headers,
+                               json={"runtime_id": "ffmpeg-audio"})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["packages"] == ["ffmpeg"]
+        assert body["command"] == "sudo apt-get install --no-install-recommends ffmpeg"
+        assert body["requires_operator_approval"] is True
+        assert body["executed"] is False
+
+        rejected = client.post("/api/runtimes/operations/preview", headers=headers,
+                               json={"runtime_id": "custom; rm -rf /"})
+        assert rejected.status_code == 422
