@@ -260,3 +260,47 @@ def test_citation_verification_rejects_unknown_ids_and_mismatched_quotes(tmp_pat
     assert result["verified"][0]["source_exists"] is True
     assert result["verified"][0]["quote_verified"] is False
     assert result["verified"][1]["source_exists"] is False
+
+
+
+def test_retrieval_benchmark_reports_recall_and_reciprocal_rank(tmp_path, monkeypatch):
+    from nova.knowledge import (
+        RetrievalBenchmarkCase, RetrievalBenchmarkRequest, evaluate_retrieval,
+    )
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+    initialize_knowledge()
+    first = import_document(DocumentImport(
+        source_name="first.txt", content="NOVA local inference uses LiteRT-LM.",
+    ))
+    second = import_document(DocumentImport(
+        source_name="second.txt", content="SQLite stores local audit records.",
+    ))
+    first_search = search_knowledge(SearchRequest(query="local inference LiteRT-LM", limit=5))
+    second_search = search_knowledge(SearchRequest(query="SQLite audit records", limit=5))
+    first_id = next(item["chunk_id"] for item in first_search["results"] if item["document_id"] == first["id"])
+    second_id = next(item["chunk_id"] for item in second_search["results"] if item["document_id"] == second["id"])
+    result = evaluate_retrieval(RetrievalBenchmarkRequest(cases=[
+        RetrievalBenchmarkCase(query="local inference LiteRT-LM", relevant_chunk_ids=[first_id]),
+        RetrievalBenchmarkCase(query="SQLite audit records", relevant_chunk_ids=[second_id]),
+    ], k=3))
+    assert result["case_count"] == 2
+    assert result["mean_recall_at_k"] == 1.0
+    assert result["mean_reciprocal_rank"] == 1.0
+    assert all(case["relevant_retrieved"] == 1 for case in result["cases"])
+    assert any("semantic entailment" in item for item in result["limitations"])
+    valid, count = verify_audit(settings.audit_path)
+    assert valid is True
+    assert count >= 4
+
+
+def test_retrieval_benchmark_rejects_empty_cases_and_bounds_k():
+    import pytest
+    from pydantic import ValidationError
+    from nova.knowledge import RetrievalBenchmarkCase, RetrievalBenchmarkRequest
+    with pytest.raises(ValidationError):
+        RetrievalBenchmarkRequest(cases=[])
+    with pytest.raises(ValidationError):
+        RetrievalBenchmarkRequest(cases=[
+            RetrievalBenchmarkCase(query="test", relevant_chunk_ids=["chunk"])
+        ], k=21)
