@@ -178,6 +178,8 @@ def test_feature_switch_blocks_hub_search_and_download(monkeypatch, tmp_path):
 
 def test_huggingface_token_can_be_configured_and_cleared_without_echo(monkeypatch, tmp_path):
     import stat
+    monkeypatch.delenv("NOVA_HUGGINGFACE_TOKEN", raising=False)
+    monkeypatch.setattr(settings, "huggingface_token", "")
     secret = "hf_test_secret_value"
     with _client(monkeypatch, tmp_path) as client:
         saved = client.put("/api/models/huggingface/token", json={"token": secret})
