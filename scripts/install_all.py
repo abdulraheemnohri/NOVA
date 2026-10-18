@@ -9,8 +9,8 @@ import shlex
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 from collections.abc import Sequence
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 EXCLUDED_DIRS = {
@@ -121,9 +121,9 @@ def install(*, dry_run: bool = False, skip_system_runtimes: bool = False) -> int
 
     package_json = ROOT / "frontend" / "package.json"
     if package_json.is_file():
-        npm = shutil.which("npm")
-        if not npm:
-            print("npm was not found after runtime setup; reopen the terminal or install Node.js.", file=sys.stderr)
+        npm = shutil.which("npm") or ("npm.cmd" if os.name == "nt" else "npm")
+        if not dry_run and not shutil.which("npm") and skip_system_runtimes:
+            print("npm was not found. Install Node.js/npm or rerun without --skip-system-runtimes.", file=sys.stderr)
             return 2
         lock = ROOT / "frontend" / "package-lock.json"
         command = [npm, "--prefix", str(ROOT / "frontend"),
