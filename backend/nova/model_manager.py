@@ -193,7 +193,7 @@ def model_preflight(model_id: str):
     check("activation", "ready" if enabled else "blocked",
           "Model is enabled." if enabled else "Model is inactive; activate it before selecting it.")
 
-    fmt = str((local_entry or catalog_entry or {}).get("format", "")).lower()
+    fmt = str((local_entry or catalog_entry or {}).get("format", "litertlm" if model_id == settings.litert_model else "")).lower()
     if fmt != "litertlm":
         check("chat_runtime", "blocked", "Only .litertlm artifacts are eligible for LiteRT-LM chat; this format is inventory-only.")
     elif local_entry is None and model_id != settings.litert_model:
@@ -229,13 +229,13 @@ def model_preflight(model_id: str):
 
     device = _memory_snapshot()
     required_gb = (catalog_entry or {}).get("ram_gb_min")
-    if required_gb is not None and device.get("available_bytes") is not None:
-        available_gb = device["available_bytes"] / (1024 ** 3)
+    if required_gb is not None and device.get("ram_available_bytes") is not None:
+        available_gb = device["ram_available_bytes"] / (1024 ** 3)
         if available_gb < float(required_gb):
             check("memory", "warning", f"Available RAM is about {available_gb:.2f} GiB; catalog guidance is {required_gb} GiB minimum. This is advisory, not a load guarantee.")
         else:
             check("memory", "ready", f"Available RAM is about {available_gb:.2f} GiB against {required_gb} GiB catalog guidance.")
-    elif device.get("available_bytes") is None:
+    elif device.get("ram_available_bytes") is None:
         check("memory", "warning", "Available RAM could not be detected; validate memory fit on the target device.")
     else:
         check("memory", "warning", "No minimum RAM estimate is defined for this local artifact; model size, quantization and context affect memory use.")
