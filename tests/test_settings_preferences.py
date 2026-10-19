@@ -96,6 +96,21 @@ def test_feature_settings_persist_and_audit(tmp_path, monkeypatch):
     assert count == 1
 
 
+def test_feature_settings_default_download_limit_is_20_gb_when_environment_ceiling_allows_it(tmp_path, monkeypatch):
+    from nova.settings_preferences import DEFAULT_FEATURES, get_feature_settings
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "huggingface_max_download_bytes", 20_000_000_000)
+    assert DEFAULT_FEATURES["max_model_download_bytes"] == 20_000_000_000
+    assert get_feature_settings()["max_model_download_bytes"] == 20_000_000_000
+
+
+def test_feature_settings_respect_lower_environment_hard_ceiling(tmp_path, monkeypatch):
+    from nova.settings_preferences import get_feature_settings
+    monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
+    monkeypatch.setattr(settings, "huggingface_max_download_bytes", 500_000_000)
+    assert get_feature_settings()["max_model_download_bytes"] == 500_000_000
+
+
 def test_feature_settings_reject_unknown_fields_and_bad_download_limit():
     from nova.settings_preferences import FeatureSettingsUpdate
     with pytest.raises(ValidationError):
