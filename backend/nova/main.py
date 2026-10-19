@@ -41,7 +41,7 @@ from nova.workflow_engine import (
     router as workflow_engine_router,
 )
 from nova.updates import router as updates_router, start_worker as start_update_worker, stop_worker as stop_update_worker
-from nova.whatsapp import router as whatsapp_router
+from nova.whatsapp import router as whatsapp_router, service as whatsapp_service
 from nova.chat_store import router as chat_store_router
 
 @asynccontextmanager
@@ -79,8 +79,10 @@ async def lifespan(application: FastAPI):
     try:
         start_worker()
         start_update_worker()
+        await whatsapp_service.start()
         yield
     finally:
+        await whatsapp_service.stop()
         stop_worker()
         stop_update_worker()
 
