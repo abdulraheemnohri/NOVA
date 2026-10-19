@@ -77,7 +77,12 @@ def test_message_extractor_ignores_malformed_entries():
 
 
 def test_manual_send_requires_verified_creator(tmp_path):
-    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(204)
+
+    service = WhatsAppAgentPlatform(
+        tmp_path, _reply, transport=httpx.MockTransport(handler)
+    )
     asyncio.run(service.configure({"api_key": "test-key", "enabled": True}))
     with pytest.raises(PermissionError):
         asyncio.run(service.send_manual({"recipient": "other-user", "message": "hello"}))
