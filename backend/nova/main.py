@@ -767,6 +767,8 @@ def write_file(req: FileWriteRequest):
             if row and row["status"] == "approved" and row["action"] == "workspace_write":
                 try:
                     payload = json.loads(row["payload_json"])
+                    if not isinstance(payload, dict):
+                        payload = {}
                 except (json.JSONDecodeError, TypeError):
                     payload = {}
                 matches = (
@@ -892,6 +894,8 @@ def rollback(req: RollbackRequest):
             raise HTTPException(403, "A pending or missing rollback approval cannot authorize this action.")
         try:
             payload = json.loads(approval["payload_json"])
+            if not isinstance(payload, dict):
+                payload = {}
         except (json.JSONDecodeError, TypeError):
             payload = {}
         if set(payload) != {"snapshot_id"}:
