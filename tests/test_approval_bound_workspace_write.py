@@ -152,3 +152,52 @@ def test_recovery_only_changes_consuming_approvals(tmp_path, monkeypatch):
     finally:
         con.close()
     assert row["status"] == "approved"
+
+def test_concurrent_workspace_write_approval_can_be_claimed_only_once(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    _isolate(tmp_path, monkeypatch)
+    content = "one concurrent approved write"
+    approval_id = _approved_write("concurrent.txt", content)
+    both_at_claim = Barrier(2)
+    original_safe_path = main._safe_path
+
+    def synchronize_before_claim(relative_path):
+        target = original_safe_path(relative_path)
+        both_at_claim.wait(timeout=5)
+        return target
+
+    monkeypatch.setattr(main, "_safe_path", synchronize_before_claim)
+
+    def attempt_write():
+        try:
+            return main.write_file(
+                main.FileWriteRequest(
+                    relative_path="concurrent.txt",
+                    content=content,
+                    approval_id=approval_id,
+                )
+            )
+        except HTTPException as exc:
+            return exc.status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: attempt_write(), range(2)))
+
+    successful = [result for result in results if isinstance(result, dict) and result.get("written")]
+    denied = [result for result in results if result == 403]
+    assert len(successful) == 1
+    assert len(denied) == 1
+    assert (settings.workspace / "concurrent.txt").read_text(encoding="utf-8") == content
+
+    con = main._db()
+    try:
+        approval = con.execute("SELECT status FROM approvals WHERE id=?", (approval_id,)).fetchone()
+        snapshots = con.execute(
+            "SELECT COUNT(*) AS count FROM snapshots WHERE relative_path='concurrent.txt'"
+        ).fetchone()
+    finally:
+        con.close()
+    assert approval["status"] == "consumed"
+    assert snapshots["count"] == 1
