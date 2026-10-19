@@ -93,7 +93,7 @@ def run(command: Sequence[str], *, dry_run: bool) -> None:
         subprocess.run(list(command), cwd=ROOT, check=True)
 
 
-def install(*, dry_run: bool = False, skip_system_runtimes: bool = False) -> int:
+def install(*, dry_run: bool = False, skip_system_runtimes: bool = False, install_litert_lm: bool = True) -> int:
     if sys.version_info < (3, 11):  # noqa: UP036
         print("NOVA requires Python 3.11+. Run this installer with a supported Python.", file=sys.stderr)
         return 2
@@ -120,6 +120,14 @@ def install(*, dry_run: bool = False, skip_system_runtimes: bool = False) -> int
          *[argument for path in manifests for argument in ("-r", str(path))]],
         dry_run=dry_run)
 
+    if install_litert_lm:
+        # Install the LiteRT-LM CLI into the project venv, but never start a server
+        # or download model weights. --dry-run remains safe and prints this step.
+        command = [python_command, str(ROOT / "scripts" / "install_optional_runtimes.py"), "--litert-lm"]
+        if dry_run:
+            command.append("--dry-run")
+        run(command, dry_run=dry_run)
+
     package_json = ROOT / "frontend" / "package.json"
     if package_json.is_file():
         npm = shutil.which("npm") or ("npm.cmd" if os.name == "nt" else "npm")
@@ -137,7 +145,8 @@ def install(*, dry_run: bool = False, skip_system_runtimes: bool = False) -> int
         if not (ROOT / ".env").exists() and (ROOT / ".env.example").exists():
             shutil.copy2(ROOT / ".env.example", ROOT / ".env")
     print(f"Installer complete. Discovered {len(manifests)} requirements file(s).")
-    print("Runtime tools are installed but NOT started automatically.")
+    print("Backend dependencies, frontend dependencies, and discovered requirements files are installed.")
+    print("LiteRT-LM CLI is installed unless --skip-litert-lm was supplied; no runtime server or model is started/downloaded.")
     print("LiteRT-LM remains the only chat-inference runtime; Whisper.cpp/Piper still need "
           "compatible binaries and local model/voice files.")
     return 0
@@ -148,10 +157,13 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="print the installation plan without changing the system")
     parser.add_argument("--skip-system-runtimes", action="store_true",
-                        help="install Python/npm dependencies only")
+                        help="install project dependencies only; do not use the OS package manager")
+    parser.add_argument("--skip-litert-lm", action="store_true",
+                        help="do not install the LiteRT-LM CLI package (no server/model is started either way)")
     args = parser.parse_args()
     try:
-        return install(dry_run=args.dry_run, skip_system_runtimes=args.skip_system_runtimes)
+        return install(dry_run=args.dry_run, skip_system_runtimes=args.skip_system_runtimes,
+                       install_litert_lm=not args.skip_litert_lm)
     except (OSError, subprocess.CalledProcessError, RuntimeError) as exc:
         print(f"Installation failed: {exc}", file=sys.stderr)
         return 1
