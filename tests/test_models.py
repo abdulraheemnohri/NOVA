@@ -157,3 +157,47 @@ def test_unknown_model_activation_is_rejected(monkeypatch, tmp_path):
             "model_id": "not-a-known-model", "enabled": False,
         })
         assert response.status_code == 404
+
+
+
+def test_device_profile_reports_safe_advisory_profile(monkeypatch, tmp_path):
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.get("/api/models/device-profile")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["device"]["recommended_profile"] in {"low_end", "mid_range", "high_end", "unknown"}
+    assert len(data["profiles"]) == 3
+    assert "Recommendations only" in data["runtime_policy"]
+
+
+def test_discover_local_models_auto_registers_known_artifacts_and_is_idempotent(monkeypatch, tmp_path):
+    model_root = tmp_path / "models"
+    model_root.mkdir()
+    artifact = model_root / "test-model.litertlm"
+    artifact.write_bytes(b"tiny fake model fixture")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "huggingface_cache_dir", model_root / "huggingface")
+    with _client(monkeypatch, tmp_path) as client:
+        first = client.post("/api/models/discover")
+        assert first.status_code == 200, first.text
+        assert first.json()["registered_count"] == 1
+        discovered = first.json()["registered"][0]
+        assert discovered["format"] == "litertlm"
+        assert discovered["chat_selectable"] is True
+        listing = client.get("/api/models")
+        assert any(item.get("model_id") == discovered["model_id"] for item in listing.json()["models"])
+        second = client.post("/api/models/discover")
+    assert second.status_code == 200
+    assert second.json()["registered_count"] == 0
+
+
+def test_discover_local_models_does_not_register_unsupported_files(monkeypatch, tmp_path):
+    model_root = tmp_path / "models"
+    model_root.mkdir()
+    (model_root / "notes.txt").write_text("not a model", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "huggingface_cache_dir", model_root / "huggingface")
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.post("/api/models/discover")
+    assert response.status_code == 200
+    assert response.json()["registered_count"] == 0
