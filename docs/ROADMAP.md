@@ -92,3 +92,10 @@ A feature is complete only when API, UI controls, persistence, permission checks
 ## Agent tool input validation
 - The deterministic Agent Workbench tools now enforce an exact per-tool input field set, string-only values, and explicit character limits before tool logic runs.
 - Unknown tools remain default-denied by policy; validation does not add shell, network, filesystem-write, or elevated permissions.
+
+## Active model runtime verification and approval regression coverage
+- Added an explicit `POST /api/models/runtime-check/{model_id}` probe. It runs normal preflight, checks local LiteRT-LM health and the exact advertised model ID, then sends a bounded 8-token inference request only when those checks pass. It does not change the active model selection and never returns probe response text.
+- Runtime-check outcomes are audited and distinguish preflight blockers, endpoint unavailability, model-ID mismatch, inference failure, and verified inference. A successful read-only preflight alone still does not claim runtime compatibility.
+- Workspace-write and rollback approvals now reject payloads with extra keys, not merely payloads whose required fields happen to match. The existing one-time claim/consumption lifecycle remains in place.
+- Regression tests cover successful real-probe behavior through a mocked local runtime, unavailable inference outcomes, advertised-ID mismatch without inference, and API-level approval payload extension attacks. Hardware/model-specific inference still requires a real-device smoke test.
+
