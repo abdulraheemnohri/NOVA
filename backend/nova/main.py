@@ -866,6 +866,10 @@ def rollback(req: RollbackRequest):
     # A rollback is destructive: require an approved, snapshot-specific, single-use approval.
     con = _db()
     try:
+        # Serialize snapshot state inspection and the single-use approval claim.
+        # Otherwise competing rollback requests can both observe an unrolled
+        # snapshot before either transaction reserves the database for writing.
+        con.execute("BEGIN IMMEDIATE")
         snapshot = con.execute(
             "SELECT * FROM snapshots WHERE id=?", (req.snapshot_id,)
         ).fetchone()
