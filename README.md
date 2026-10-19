@@ -91,7 +91,7 @@ The **Runtimes** page inventories LiteRT-LM, whisper.cpp, Piper, ONNX Runtime, T
 - Audit JSONL records use a SHA-256 hash chain. This is tamper-evident, not immutable against a privileged administrator.
 - Filesystem paths are confined to the configured workspace.
 - Authentication is a single local operator token, not multi-user RBAC.
-- Full semantic RAG, background scheduler/worker, production-grade process sandboxing, broader vision/OCR adapters, multi-user RBAC, and crash-recovery orchestration remain incomplete.
+- Full semantic RAG, production-grade process sandboxing, broader vision/OCR adapters, multi-user RBAC, and broader autonomous crash-recovery orchestration remain incomplete. Bounded recovery is implemented: interrupted runs are marked for operator review and are never replayed automatically.
 
 Read `docs/SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/OFFLINE_DEPLOYMENT.md`, and `docs/ROADMAP.md`.
 
