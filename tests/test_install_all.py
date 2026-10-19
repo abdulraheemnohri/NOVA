@@ -88,3 +88,22 @@ def test_dry_run_and_skip_system_runtimes_are_forwarded(monkeypatch) -> None:
     assert installer.main() == 0
     assert captured[-1]["dry_run"] is True
     assert captured[-1]["skip_system_runtimes"] is True
+
+
+
+def test_installer_cli_forwards_dry_run_and_skip_system_runtime_flags(monkeypatch) -> None:
+    import sys
+    import scripts.install_all as installer
+
+    captured = []
+
+    def fake_install(**kwargs):
+        captured.append(kwargs)
+        return 0
+
+    monkeypatch.setattr(installer, "install", fake_install)
+    monkeypatch.setattr(sys, "argv", ["install_all.py", "--dry-run", "--skip-system-runtimes"])
+    assert installer.main() == 0
+    assert captured[-1]["dry_run"] is True
+    assert captured[-1]["skip_system_runtimes"] is True
+    assert "install_litert_lm" not in captured[-1]
