@@ -118,10 +118,12 @@ def set_model_activation(req: ModelActivationRequest):
         raise HTTPException(404, "Model is not in the catalog or local registry.")
     if not req.enabled and req.model_id == settings.litert_model:
         raise HTTPException(409, "The configured LiteRT-LM fallback cannot be disabled; change NOVA_LITERT_MODEL in the local environment first.")
-    was_selected = active_model_id() == req.model_id
+    was_selected = False
     con = _connect()
     try:
         con.execute("BEGIN IMMEDIATE")
+        selected = con.execute("SELECT value FROM nova_local_settings WHERE key='active_model_id'").fetchone()
+        was_selected = (str(selected["value"]) if selected else settings.litert_model) == req.model_id
         if not req.enabled and was_selected:
             # Fall back to the operator-configured LiteRT-LM model before marking this model inactive.
             con.execute("DELETE FROM nova_local_settings WHERE key='active_model_id' AND value=?", (req.model_id,))
@@ -175,8 +177,16 @@ def select_model(req: SelectModelRequest):
         raise HTTPException(400, "This model type has no LiteRT-LM inference adapter; it cannot be selected for chat.")
     con = _connect()
     try:
+        con.execute("BEGIN IMMEDIATE")
+        status = con.execute("SELECT enabled FROM model_status WHERE model_id=?", (req.model_id,)).fetchone()
+        if status is not None and not bool(status["enabled"]):
+            con.rollback()
+            raise HTTPException(409, "This model is inactive. Activate it before selecting it for chat.")
         con.execute("INSERT INTO nova_local_settings(key,value) VALUES('active_model_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (req.model_id,))
         con.commit()
+    except Exception:
+        con.rollback()
+        raise
     finally:
         con.close()
     append_audit(settings.audit_path, "model_selected", {"model_id": req.model_id, "runtime": "LiteRT-LM"})
