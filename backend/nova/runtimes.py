@@ -160,7 +160,13 @@ def runtime_inventory() -> dict[str, Any]:
             "endpoint_reachable": litert.get("reachable") is True,
             "endpoint": litert.get("base_url", settings.litert_base_url),
             "model_configured": settings.litert_model,
-            # /models reachability alone does not prove that this configured model is loaded.
+            # The /models catalog only advertises IDs; it does not prove that weights are loaded.
+            "configured_model_advertised": (
+                settings.litert_model in litert.get("advertised_model_ids", [])
+                if litert.get("reachable") is True
+                and isinstance(litert.get("advertised_model_ids"), list)
+                else None
+            ),
             "model_load_state": "unknown",
             "status": "ready" if litert.get("reachable") is True else "unavailable",
             "policy": "Health probe confirms endpoint reachability only; model load state is not reported. No automatic fallback.",
