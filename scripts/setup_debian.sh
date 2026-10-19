@@ -26,12 +26,9 @@ node -e 'if (Number(process.versions.node.split(".")[0]) < 18) process.exit(1)' 
   exit 1
 }
 
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-dev.txt
-if [[ ! -f .env ]]; then cp .env.example .env; fi
-npm --prefix frontend install --no-audit --no-fund
+python3 scripts/install_all.py --skip-system-runtimes
 mkdir -p data/workspace data/models
 chmod 700 data data/workspace data/models
-echo "Setup complete. Run: bash scripts/run_backend.sh and, in another terminal, bash scripts/run_frontend.sh"
+echo "Setup complete. LiteRT-LM CLI is installed but not started; no model weights were downloaded."
+echo "Run: bash scripts/run_backend.sh and, in another terminal, bash scripts/run_frontend.sh"
+echo "For optional task runtimes, use scripts/install_optional_runtimes.py --help."
