@@ -56,3 +56,45 @@ def test_redirect_handler_refuses_redirects():
         {},
         "https://example.com/collect",
     ) is None
+
+class _HealthResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def read(self, _limit):
+        import json
+        return json.dumps(self.payload).encode("utf-8")
+
+
+def test_health_requires_openai_compatible_models_list(monkeypatch):
+    from nova import litert
+
+    monkeypatch.setattr(settings, "litert_base_url", "http://127.0.0.1:9379/v1")
+    monkeypatch.setattr(litert, "_open", lambda *_args, **_kwargs: _HealthResponse({
+        "data": [{"id": "local-model"}]
+    }))
+    result = litert.health()
+    assert result["reachable"] is True
+    assert result["advertised_model_ids"] == ["local-model"]
+
+
+@pytest.mark.parametrize("payload", [
+    {"status": "ok"},
+    {"data": "local-model"},
+    {"data": [{}]},
+    {"data": [{"id": 123}]},
+])
+def test_health_rejects_incompatible_models_response(monkeypatch, payload):
+    from nova import litert
+
+    monkeypatch.setattr(settings, "litert_base_url", "http://127.0.0.1:9379/v1")
+    monkeypatch.setattr(litert, "_open", lambda *_args, **_kwargs: _HealthResponse(payload))
+    result = litert.health()
+    assert result["reachable"] is False
+    assert "incompatible" in result["message"]
