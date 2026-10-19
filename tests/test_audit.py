@@ -1,8 +1,15 @@
 import json
+import multiprocessing
+from pathlib import Path
 
 import pytest
 
 from nova.audit import append_audit, verify_audit
+
+
+def _append_audit_events(path: str, worker_id: int, count: int) -> None:
+    for index in range(count):
+        append_audit(Path(path), "process.event", {"worker": worker_id, "index": index})
 
 
 def test_audit_chain_round_trip(tmp_path):
@@ -27,3 +34,23 @@ def test_malformed_audit_log_fails_closed(tmp_path):
     assert verify_audit(path) == (False, 0)
     with pytest.raises(ValueError, match="integrity check failed"):
         append_audit(path, "must.not.append", {})
+
+
+def test_audit_chain_is_serialized_across_processes(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    context = multiprocessing.get_context("spawn")
+    workers = [
+        context.Process(target=_append_audit_events, args=(str(path), worker_id, 8))
+        for worker_id in range(4)
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=20)
+    for worker in workers:
+        if worker.is_alive():
+            worker.terminate()
+            worker.join()
+            pytest.fail("audit writer process timed out")
+        assert worker.exitcode == 0
+    assert verify_audit(path) == (True, 32)

@@ -5,10 +5,12 @@ The chain is tamper-evident, not immutable against a privileged administrator.
 import hashlib
 import hmac
 import json
+import os
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 _lock = threading.Lock()
 _ZERO_HASH = "0" * 64
@@ -16,6 +18,36 @@ _ZERO_HASH = "0" * 64
 
 def _canonical(value: dict[str, Any]) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+@contextmanager
+def _process_lock(path: Path) -> Iterator[None]:
+    """Serialize audit-chain read/append operations across processes as well as threads."""
+    lock_path = path.with_name(path.name + ".lock")
+    with lock_path.open("a+b") as lock_file:
+        if os.name == "nt":
+            # msvcrt locks byte ranges, so ensure byte zero exists before locking it.
+            import msvcrt
+
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
 def _verify_unlocked(path: Path) -> tuple[bool, int, str]:
@@ -46,7 +78,7 @@ def _verify_unlocked(path: Path) -> tuple[bool, int, str]:
 
 def append_audit(path: Path, event_type: str, details: dict[str, Any]) -> dict[str, Any]:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _lock:
+    with _lock, _process_lock(path):
         valid, _, previous = _verify_unlocked(path)
         if not valid:
             raise ValueError("Audit chain integrity check failed; refusing to append.")
@@ -64,6 +96,7 @@ def append_audit(path: Path, event_type: str, details: dict[str, Any]) -> dict[s
 
 
 def verify_audit(path: Path) -> tuple[bool, int]:
-    with _lock:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _lock, _process_lock(path):
         valid, count, _ = _verify_unlocked(path)
         return valid, count
