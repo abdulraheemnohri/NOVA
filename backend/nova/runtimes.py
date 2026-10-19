@@ -157,10 +157,13 @@ def runtime_inventory() -> dict[str, Any]:
             "id": "litert-lm", "name": "LiteRT-LM",
             "purpose": "Primary chat/reasoning inference", "role": "primary_chat",
             "detected": litert.get("reachable") is True, "configured": True,
+            "endpoint_reachable": litert.get("reachable") is True,
             "endpoint": litert.get("base_url", settings.litert_base_url),
             "model_configured": settings.litert_model,
+            # /models reachability alone does not prove that this configured model is loaded.
+            "model_load_state": "unknown",
             "status": "ready" if litert.get("reachable") is True else "unavailable",
-            "policy": "Only chat inference runtime; no automatic fallback.",
+            "policy": "Health probe confirms endpoint reachability only; model load state is not reported. No automatic fallback.",
         },
         {
             "id": "whisper-cpp", "name": "whisper.cpp",
