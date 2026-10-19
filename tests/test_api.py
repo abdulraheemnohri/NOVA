@@ -434,3 +434,21 @@ def test_lifespan_initializes_services_and_stops_workers(monkeypatch, tmp_path):
         ]
 
     assert calls[-2:] == ["scheduler_stop", "updater_stop"]
+
+
+def test_chat_is_blocked_if_selected_model_becomes_inactive(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    called = {"chat": False}
+    monkeypatch.setattr("nova.main.active_model_id", lambda: "test-local-model")
+    monkeypatch.setattr("nova.main._model_enabled", lambda model_id: False)
+    def unexpected_chat(*args, **kwargs):
+        called["chat"] = True
+        raise AssertionError("Inference must not run for an inactive model")
+    monkeypatch.setattr("nova.main.chat", unexpected_chat)
+
+    with _client() as client:
+        response = client.post("/api/chat", json={"message": "Hello NOVA"})
+
+    assert response.status_code == 409
+    assert "inactive" in response.json()["detail"].lower()
+    assert called["chat"] is False
