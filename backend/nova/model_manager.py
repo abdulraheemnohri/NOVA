@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import platform
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -98,6 +100,159 @@ def _local_registry() -> list[dict[str, Any]]:
         return [dict(row) for row in con.execute("SELECT * FROM model_registry ORDER BY created_at DESC")]
     finally:
         con.close()
+
+def _memory_snapshot() -> dict[str, Any]:
+    """Read host RAM without requiring psutil or launching subprocesses."""
+    total = available = None
+    if Path("/proc/meminfo").is_file():
+        try:
+            values = {}
+            for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+                key, _, rest = line.partition(":")
+                parts = rest.strip().split()
+                if parts and parts[0].isdigit():
+                    values[key] = int(parts[0]) * 1024
+            total = values.get("MemTotal")
+            available = values.get("MemAvailable") or values.get("MemFree")
+        except (OSError, ValueError):
+            pass
+    if total is None and platform.system() == "Windows":
+        try:
+            import ctypes
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            status = MEMORYSTATUSEX()
+            status.dwLength = ctypes.sizeof(status)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                total, available = int(status.ullTotalPhys), int(status.ullAvailPhys)
+        except (AttributeError, OSError, TypeError):
+            pass
+    gib = total / (1024 ** 3) if total is not None else None
+    tier = "unknown" if gib is None else "low_end" if gib <= 4 else "mid_range" if gib <= 8 else "high_end"
+    budget = int(max(0, available or 0) * 0.60) if available is not None else None
+    return {"platform": platform.platform(), "architecture": platform.machine(),
+            "ram_total_bytes": total, "ram_available_bytes": available,
+            "ram_total_gib": round(gib, 2) if gib is not None else None,
+            "ram_available_gib": round(available / (1024 ** 3), 2) if available is not None else None,
+            "recommended_profile": tier, "conservative_model_memory_budget_bytes": budget,
+            "gpu_vram_bytes": None,
+            "notes": ["RAM readings are advisory, not a guarantee that a model fits.",
+                      "GPU/VRAM detection is not implemented on every platform.",
+                      "Context/KV cache, runtime overhead and concurrent processes reduce usable memory."]}
+
+
+def _model_kind_for_path(path: Path) -> str:
+    name, parent = path.name.lower(), str(path.parent).lower()
+    if any(word in name or word in parent for word in ("whisper", "asr", "speech")):
+        return "speech_to_text"
+    if any(word in name or word in parent for word in ("piper", "tts", "voice")):
+        return "text_to_speech"
+    if any(word in name or word in parent for word in ("embed", "sentence-transform", "e5-", "bge-")):
+        return "embedding"
+    if any(word in name or word in parent for word in ("rerank", "cross-encoder")):
+        return "reranking"
+    if any(word in name or word in parent for word in ("ocr", "vision", "clip", "llava")):
+        return "vision"
+    return "chat" if path.suffix.lower() in {".litertlm", ".gguf"} else "unknown"
+
+
+@router.get("/device-profile")
+def device_profile():
+    snapshot = _memory_snapshot()
+    profiles = {p["id"]: p for p in DEVICE_PROFILES}
+    return {"device": snapshot, "profile": profiles.get(snapshot["recommended_profile"]),
+            "profiles": DEVICE_PROFILES,
+            "runtime_policy": "Recommendations only; verify artifact/runtime support and context memory before loading."}
+
+
+@router.post("/discover")
+def discover_local_models():
+    """Automatically inventory artifacts under NOVA's known model/cache roots only."""
+    roots = [settings.huggingface_cache_dir.expanduser(), Path("./data/models").expanduser()]
+    normalized_roots: list[Path] = []
+    for root in roots:
+        try:
+            resolved = root.resolve()
+            if resolved not in normalized_roots:
+                normalized_roots.append(resolved)
+        except OSError:
+            continue
+    existing = {str(Path(item["file_path"]).resolve()) for item in _local_registry()
+                if item.get("file_path")}
+    allowed = {".litertlm", ".gguf", ".tflite", ".onnx", ".safetensors", ".bin"}
+    candidates: list[Path] = []
+    seen: set[str] = set()
+    truncated = False
+    visited = 0
+    for root in normalized_roots:
+        if not root.is_dir():
+            continue
+        try:
+            for directory, dirnames, filenames in os.walk(root, followlinks=False):
+                dirnames[:] = [d for d in dirnames if not (Path(directory) / d).is_symlink()
+                               and d not in {".git", "__pycache__"}]
+                for filename in filenames:
+                    visited += 1
+                    if visited > 10000:
+                        truncated = True
+                        break
+                    path = Path(directory) / filename
+                    if path.suffix.lower() not in allowed or path.is_symlink():
+                        continue
+                    try:
+                        resolved = path.resolve(strict=True)
+                        if not resolved.is_file() or str(resolved) in seen:
+                            continue
+                        seen.add(str(resolved))
+                        if str(resolved) not in existing:
+                            candidates.append(resolved)
+                            if len(candidates) >= 200:
+                                truncated = True
+                                break
+                    except OSError:
+                        continue
+                if truncated:
+                    break
+        except OSError:
+            continue
+        if truncated:
+            break
+    registered: list[dict[str, Any]] = []
+    for path in candidates:
+        try:
+            size = path.stat().st_size
+            if size <= 0:
+                continue
+            digest = hashlib.sha256()
+            with path.open("rb") as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(block)
+            sha, fmt = digest.hexdigest(), path.suffix.lower().lstrip(".")
+            kind = _model_kind_for_path(path)
+            model_id = "local-" + hashlib.sha256(str(path).encode("utf-8")).hexdigest()[:16]
+            con = _connect()
+            try:
+                con.execute("INSERT OR IGNORE INTO model_registry(model_id,name,kind,file_path,format,sha256) VALUES(?,?,?,?,?,?)",
+                            (model_id, path.stem[:160], kind, str(path), fmt, sha))
+                con.commit()
+            finally:
+                con.close()
+            registered.append({"model_id": model_id, "name": path.stem, "kind": kind,
+                               "format": fmt, "file_path": str(path), "size_bytes": size,
+                               "sha256": sha, "chat_selectable": fmt == "litertlm"})
+        except (OSError, sqlite3.Error):
+            continue
+    if registered:
+        append_audit(settings.audit_path, "local_models_auto_discovered",
+                     {"count": len(registered), "formats": sorted({m["format"] for m in registered})})
+    return {"registered_count": len(registered), "registered": registered,
+            "roots_scanned": [str(p) for p in normalized_roots], "truncated": truncated,
+            "note": "Inventory only: no model is downloaded, executed, or activated. Only .litertlm artifacts are eligible for LiteRT-LM chat."}
+
 
 @router.get("/catalog")
 def model_catalog():
