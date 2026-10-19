@@ -40,6 +40,9 @@ def test_runtime_inventory_separates_chat_and_specialized_runtimes(tmp_path, mon
         assert body["automatic_fallback"] is False
         entries = {item["id"]: item for item in body["runtimes"]}
         assert entries["litert-lm"]["status"] == "ready"
+        assert entries["litert-lm"]["endpoint_reachable"] is True
+        assert entries["litert-lm"]["model_load_state"] == "unknown"
+        assert "model load state is not reported" in entries["litert-lm"]["policy"]
         assert entries["whisper-cpp"]["detected"] is True
         assert entries["onnx-runtime"]["detected"] is True
         assert entries["llama-cpp"]["status"] == "not_available"
