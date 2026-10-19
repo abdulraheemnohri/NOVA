@@ -750,6 +750,10 @@ def write_file(req: FileWriteRequest):
     if req.approval_id:
         con = _db()
         try:
+            # Acquire SQLite's write reservation before reading approval state. A
+            # read-then-write transaction can otherwise fail with SQLITE_BUSY when
+            # two concurrent requests both read the same approved row.
+            con.execute("BEGIN IMMEDIATE")
             row = con.execute(
                 "SELECT action,payload_json,status FROM approvals WHERE id=?",
                 (req.approval_id,),
@@ -764,13 +768,12 @@ def write_file(req: FileWriteRequest):
                     and payload.get("content_sha256") == content_hash
                 )
                 if matches:
-                    # Conditional update claims the approval once, even under concurrent requests.
                     claimed = con.execute(
                         "UPDATE approvals SET status='consuming' WHERE id=? AND status='approved'",
                         (req.approval_id,),
                     )
-                    con.commit()
                     approved = claimed.rowcount == 1
+            con.commit()
         finally:
             con.close()
     policy = evaluate_tool("workspace_write", approved)
