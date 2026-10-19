@@ -493,7 +493,10 @@ def model_runtime_check(model_id: str):
         })
         return result
 
-    runtime = litert_health()
+    try:
+        runtime = litert_health()
+    except LiteRTError:
+        runtime = {"reachable": False, "message": "LiteRT-LM endpoint configuration is invalid or unavailable."}
     if not runtime.get("reachable"):
         result = {
             "model_id": model_id,
