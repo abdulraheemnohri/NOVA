@@ -20,7 +20,7 @@ def test_litert_and_piper_install_is_opt_in_and_never_starts_a_runtime(monkeypat
     assert result == 0
     assert commands == [[
         str(installer.VENV_PYTHON), "-m", "pip", "install", "--upgrade",
-        "litert-lm", "piper-tts",
+        "litert-lm>=0.18,<1", "piper-tts>=1.2,<2",
     ]]
     assert not any("run" in command for command in commands)
 
