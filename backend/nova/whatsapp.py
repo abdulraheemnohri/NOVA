@@ -450,7 +450,7 @@ class WhatsAppSend(BaseModel):
     recipient: str | None = Field(default=None, max_length=128)
 
 
-service = WhatsAppAgentPlatform(settings.database_path.parent, _gemma_reply)
+service = WhatsAppAgentPlatform(settings.database_path.parent / "whatsapp-agent", _gemma_reply)
 router = APIRouter(prefix="/api/whatsapp-agent", tags=["WhatsApp Agent Platform"])
 
 
