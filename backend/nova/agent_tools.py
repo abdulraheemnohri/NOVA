@@ -9,6 +9,33 @@ router=APIRouter(prefix="/api/agent/tools",tags=["agent tools"])
 class Call(BaseModel):
  model_config=ConfigDict(extra="forbid")
  name:str=Field(min_length=1,max_length=60);input:dict={}
+
+# Each registered deterministic tool accepts exactly one bounded string field.
+# Keeping the schema at the API boundary prevents silently ignored or oversized inputs.
+_TOOL_INPUT_LIMITS = {
+ "calculator": {"expression": 256},
+ "knowledge_search": {"query": 1000},
+ "text_stats": {"text": 10000},
+ "json_format": {"json": 100000},
+ "base64_encode": {"text": 100000},
+ "base64_decode": {"encoded": 140000},
+ "csv_summary": {"csv": 100000},
+ "markdown_outline": {"markdown": 100000},
+}
+
+def _validate_tool_input(name: str, value: dict) -> None:
+ schema = _TOOL_INPUT_LIMITS.get(name)
+ if schema is None:
+  return  # Authorization below remains responsible for default-denying unknown tools.
+ if set(value) != set(schema):
+  expected = ", ".join(sorted(schema))
+  raise HTTPException(422, "Tool input must contain exactly these field(s): " + expected + ".")
+ for field_name, limit in schema.items():
+  field_value = value[field_name]
+  if not isinstance(field_value, str):
+   raise HTTPException(422, "Tool input '" + field_name + "' must be a string.")
+  if len(field_value) > limit:
+   raise HTTPException(422, "Tool input '" + field_name + "' exceeds the " + str(limit) + "-character limit.")
 def _is_number(value):
  try:
   float(value)
@@ -39,6 +66,7 @@ def catalog():return {"tools":[{"name":"calculator","input_schema":{"expression"
 def execute(req:Call):
  d=evaluate_tool(req.name)
  if not d.allowed or d.requires_approval:raise HTTPException(403,d.reason)
+ _validate_tool_input(req.name, req.input)
  try:
   if req.name=="calculator":r={"result":calculator(req.input.get("expression"))}
   elif req.name=="text_stats":
