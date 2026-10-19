@@ -89,7 +89,7 @@ DEFAULT_FEATURES = {
     "piper_enabled": True,
     "ocr_enabled": True,
     "onnx_runtime_enabled": True,
-    "max_model_download_bytes": 2_000_000_000,
+    "max_model_download_bytes": 20_000_000_000,
 }
 
 class FeatureSettingsUpdate(BaseModel):
@@ -101,7 +101,7 @@ class FeatureSettingsUpdate(BaseModel):
     piper_enabled: bool = True
     ocr_enabled: bool = True
     onnx_runtime_enabled: bool = True
-    max_model_download_bytes: int = Field(default=2_000_000_000, ge=1_000_000, le=2_000_000_000)
+    max_model_download_bytes: int = Field(default=20_000_000_000, ge=1_000_000, le=20_000_000_000)
 
 def get_feature_settings() -> dict[str, Any]:
     con = _connect()

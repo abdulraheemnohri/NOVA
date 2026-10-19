@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
 import urllib.error
 import urllib.parse
@@ -35,7 +36,7 @@ class DownloadRequest(BaseModel):
     repo_id: str = Field(min_length=3, max_length=200)
     filename: str = Field(min_length=1, max_length=500)
     revision: str = Field(default="main", min_length=1, max_length=120)
-    max_bytes: int | None = Field(default=None, ge=1, le=2_000_000_000)
+    max_bytes: int | None = Field(default=None, ge=1, le=20_000_000_000)
 
 
 def _stored_token() -> str:
@@ -186,6 +187,26 @@ def _safe_filename(filename: str) -> tuple[str, str]:
     return path.as_posix(), ext
 
 
+def _cache_storage_status() -> dict[str, Any]:
+    """Report cache volume capacity without exposing model contents or secrets."""
+    cache = settings.huggingface_cache_dir.expanduser()
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        usage = shutil.disk_usage(cache)
+        used = 0
+        for path in cache.rglob("*"):
+            try:
+                if path.is_file() and not path.is_symlink():
+                    used += path.stat().st_size
+            except OSError:
+                continue
+        return {"path": str(cache), "free_bytes": usage.free, "total_bytes": usage.total,
+                "used_bytes": used, "available": True}
+    except OSError:
+        return {"path": str(cache), "free_bytes": None, "total_bytes": None,
+                "used_bytes": None, "available": False}
+
+
 @router.get("/status")
 def huggingface_status():
     features = get_feature_settings()
@@ -193,6 +214,8 @@ def huggingface_status():
             "token_source": ("environment/config setting" if (settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()) else ("private local token file" if _stored_token() else "not configured")),
             "cache_dir": str(settings.huggingface_cache_dir),
             "max_download_bytes": features["max_model_download_bytes"],
+            "hard_max_download_bytes": int(settings.huggingface_max_download_bytes),
+            "storage": _cache_storage_status(),
             "inference_policy": "Hugging Face supplies files/metadata only; chat inference remains LiteRT-LM-only."}
 
 
@@ -280,6 +303,13 @@ def download_huggingface_artifact(req: DownloadRequest):
         raise HTTPException(413, f"Artifact size ({size} bytes) exceeds the configured download limit ({limit} bytes).")
 
     settings.huggingface_cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        free_bytes = shutil.disk_usage(settings.huggingface_cache_dir).free
+    except OSError as exc:
+        raise HTTPException(503, "Could not verify free storage for the model cache.") from exc
+    reserve_bytes = 256 * 1024 * 1024
+    if isinstance(size, int) and size >= 0 and size > max(0, free_bytes - reserve_bytes):
+        raise HTTPException(507, f"Insufficient storage: artifact needs {size} bytes plus a 256 MiB safety reserve; {free_bytes} bytes are free.")
     destination_dir = (settings.huggingface_cache_dir / repo.replace("/", "--") / re.sub(r"[^A-Za-z0-9._-]", "_", revision)).resolve()
     cache_root = settings.huggingface_cache_dir.resolve()
     if cache_root not in destination_dir.parents:
@@ -322,6 +352,12 @@ def download_huggingface_artifact(req: DownloadRequest):
                 total += len(block)
                 if total > limit:
                     raise HTTPException(413, "Download exceeded the configured size limit; partial artifact discarded.")
+                try:
+                    free_now = shutil.disk_usage(destination.parent).free
+                except OSError as exc:
+                    raise HTTPException(503, "Could not re-check free storage during download; partial artifact discarded.") from exc
+                if free_now < len(block) + reserve_bytes:
+                    raise HTTPException(507, "Insufficient free storage during download; partial artifact discarded.")
                 output.write(block)
                 digest.update(block)
             output.flush()

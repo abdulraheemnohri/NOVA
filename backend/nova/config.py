@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     semantic_retrieval_enabled: bool = False
     embedding_model_path: Path = Path("./data/models/embeddings")
     huggingface_cache_dir: Path = Path("./data/models/huggingface")
-    huggingface_max_download_bytes: int = 2000000000
+    huggingface_max_download_bytes: int = Field(default=20_000_000_000, ge=0, le=20_000_000_000)
     huggingface_token: str = ""
     huggingface_token_file: Path = Path("./data/huggingface.token")
     require_approval_for_writes: bool = True

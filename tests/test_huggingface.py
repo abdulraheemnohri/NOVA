@@ -31,6 +31,9 @@ def test_huggingface_status_does_not_expose_token(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert "secret-test-token" not in response.text
     assert response.json()["token_configured"] is True
+    assert response.json()["storage"]["available"] is True
+    assert response.json()["storage"]["free_bytes"] > 0
+    assert response.json()["hard_max_download_bytes"] == settings.huggingface_max_download_bytes
     assert response.json()["inference_policy"].startswith("Hugging Face supplies files/metadata only")
 
 
@@ -115,6 +118,25 @@ def test_huggingface_download_is_explicit_bounded_and_audited(monkeypatch, tmp_p
             "file_path": str(artifact), "format": "litertlm", "sha256": data["sha256"],
         })
     assert registered.status_code == 200, registered.text
+
+def test_huggingface_download_rejects_insufficient_storage_before_network(monkeypatch, tmp_path):
+    payload = b"x" * 1024
+    monkeypatch.setattr(huggingface, "_hub_json", lambda url: {
+        "id": "example/model", "siblings": [{"rfilename": "model.litertlm", "size": len(payload)}],
+    })
+    class Usage:
+        total = 1024 * 1024
+        used = 900 * 1024
+        free = 124 * 1024
+    monkeypatch.setattr(huggingface.shutil, "disk_usage", lambda _path: Usage())
+    monkeypatch.setattr(huggingface, "_request", lambda *_args, **_kwargs: pytest.fail("must reject before network download"))
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.post("/api/models/huggingface/download", json={
+            "repo_id": "example/model", "filename": "model.litertlm", "revision": "main",
+        })
+    assert response.status_code == 507
+    assert "Insufficient storage" in response.json()["detail"]
+
 
 def test_huggingface_cached_artifact_still_obeys_current_size_limit(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "huggingface_max_download_bytes", 8)
