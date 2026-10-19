@@ -16,7 +16,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from nova.audit import append_audit, verify_audit
 from nova.config import settings
@@ -179,6 +179,13 @@ class ApprovalRequest(BaseModel):
     action: str = Field(min_length=1, max_length=80)
     payload: dict[str, Any] = Field(default_factory=dict)
     reason: str = Field(min_length=1, max_length=1000)
+
+
+class ApprovedToolExecutionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    approval_id: str = Field(min_length=1, max_length=80)
+    tool_name: str = Field(min_length=1, max_length=60)
+    input: dict[str, Any] = Field(default_factory=dict)
 
 
 class FileWriteRequest(BaseModel):
@@ -684,6 +691,15 @@ def list_approvals():
 @app.post("/api/approvals")
 def create_approval(req: ApprovalRequest):
     policy = evaluate_tool(req.action)
+    if req.action == "agent_tool_execute":
+        if set(req.payload) != {"tool_name", "input"}:
+            raise HTTPException(422, "Tool execution approval payload must contain only tool_name and input.")
+        registered_names = {item["name"] for item in agent_tool_catalog().get("tools", [])}
+        tool_name = req.payload.get("tool_name")
+        if not isinstance(tool_name, str) or tool_name not in registered_names:
+            raise HTTPException(403, "Only registered deterministic Agent Workbench tools can be approved.")
+        if not isinstance(req.payload.get("input"), dict):
+            raise HTTPException(422, "Approved tool input must be an object.")
     if not policy.requires_approval:
         _audit("approval.blocked", {"action": req.action, "reason": policy.reason})
         raise HTTPException(403, policy.reason)
@@ -973,4 +989,93 @@ def get_settings():
         "huggingface_max_download_bytes": get_feature_settings()["max_model_download_bytes"],
         "huggingface_token_configured": bool(settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()),
     }
+
+@app.post("/api/agent/tools/execute-approved")
+def execute_approved_agent_tool(req: ApprovedToolExecutionRequest):
+    """Execute one registered deterministic tool under an exact, single-use approval."""
+    registered_names = {item["name"] for item in agent_tool_catalog().get("tools", [])}
+    if req.tool_name not in registered_names:
+        _audit("agent.tool.approved_execution.blocked", {
+            "tool": req.tool_name, "reason": "unregistered_tool",
+        })
+        raise HTTPException(403, "Only registered deterministic Agent Workbench tools can be executed.")
+
+    con = _db()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        row = con.execute(
+            "SELECT action,payload_json,status FROM approvals WHERE id=?",
+            (req.approval_id,),
+        ).fetchone()
+        if row is None:
+            raise HTTPException(404, "Approval not found.")
+        if row["status"] != "approved" or row["action"] != "agent_tool_execute":
+            raise HTTPException(403, "A pending, consumed, or unrelated approval cannot authorize tool execution.")
+        try:
+            payload = json.loads(row["payload_json"])
+        except (json.JSONDecodeError, TypeError):
+            payload = {}
+        if not isinstance(payload, dict) or set(payload) != {"tool_name", "input"}:
+            raise HTTPException(403, "Approval payload is malformed or contains extra fields.")
+        if payload.get("tool_name") != req.tool_name or payload.get("input") != req.input:
+            raise HTTPException(403, "Tool execution request does not exactly match the approved tool and input.")
+        claimed = con.execute(
+            "UPDATE approvals SET status='consuming' WHERE id=? AND status='approved' AND action='agent_tool_execute'",
+            (req.approval_id,),
+        )
+        if claimed.rowcount != 1:
+            con.rollback()
+            raise HTTPException(409, "Approval was already claimed or consumed.")
+        con.commit()
+    finally:
+        con.close()
+
+    try:
+        result = execute_agent_tool(AgentToolCall(name=req.tool_name, input=req.input))
+    except HTTPException as exc:
+        con = _db()
+        try:
+            con.execute(
+                "UPDATE approvals SET status='failed' WHERE id=? AND status='consuming'",
+                (req.approval_id,),
+            )
+            con.commit()
+        finally:
+            con.close()
+        _audit("agent.tool.approved_execution.failed", {
+            "approval_id": req.approval_id, "tool": req.tool_name,
+            "http_status": exc.status_code,
+        })
+        raise
+    except Exception as exc:
+        con = _db()
+        try:
+            con.execute(
+                "UPDATE approvals SET status='failed' WHERE id=? AND status='consuming'",
+                (req.approval_id,),
+            )
+            con.commit()
+        finally:
+            con.close()
+        _audit("agent.tool.approved_execution.failed", {
+            "approval_id": req.approval_id, "tool": req.tool_name,
+            "error_type": type(exc).__name__,
+        })
+        raise HTTPException(500, "Approved tool execution failed; approval has been disabled.") from exc
+
+    con = _db()
+    try:
+        consumed = con.execute(
+            "UPDATE approvals SET status='consumed' WHERE id=? AND status='consuming'",
+            (req.approval_id,),
+        )
+        con.commit()
+        if consumed.rowcount != 1:
+            raise HTTPException(409, "Tool result completed but approval state could not be finalized; inspect audit logs.")
+    finally:
+        con.close()
+    _audit("agent.tool.approved_execution.completed", {
+        "approval_id": req.approval_id, "tool": req.tool_name,
+    })
+    return {"executed": True, "approval_id": req.approval_id, "status": "consumed", "result": result}
 
