@@ -64,7 +64,20 @@ def health() -> dict:
     try:
         with _open(Request(base + "/models"), timeout=2) as response:
             payload = json.loads(_read_bounded(response, MAX_HEALTH_RESPONSE_BYTES))
-            return {"reachable": True, "base_url": base, "models_response": payload}
+            # A generic HTTP 200/JSON body is not enough; require the standard
+            # OpenAI-compatible /models list shape before reporting the endpoint ready.
+            if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+                raise LiteRTError("Local inference endpoint returned an incompatible models response.")
+            model_ids = [
+                item.get("id") for item in payload["data"]
+                if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"]
+            ]
+            if len(model_ids) != len(payload["data"]):
+                raise LiteRTError("Local inference endpoint returned an invalid models list.")
+            return {
+                "reachable": True, "base_url": base, "models_response": payload,
+                "advertised_model_ids": model_ids,
+            }
     except (URLError, HTTPError, TimeoutError, ValueError, OSError, LiteRTError):
         return {
             "reachable": False,
