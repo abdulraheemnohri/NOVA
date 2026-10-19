@@ -8,15 +8,14 @@ NOVA is an active engineering project, not yet a feature-complete production rel
 
 ## Quick start (Windows, Linux and macOS)
 
-The cross-platform installer discovers all project requirements*.txt files, creates an isolated Python environment, installs backend and Web UI dependencies, installs the LiteRT-LM CLI by default, and installs supported system tools (Node.js/npm, FFmpeg and Tesseract OCR) through the platform package manager. It does not install Docker, start a model server, or download model weights. Use --dry-run to preview changes, --skip-system-runtimes to skip OS packages, or --skip-litert-lm to skip the LiteRT-LM CLI package.
+The cross-platform installer discovers all project requirements*.txt files, creates an isolated Python environment, installs backend and Web UI dependencies, installs the LiteRT-LM CLI by default, and installs supported system tools (Node.js/npm, FFmpeg and Tesseract OCR) through the platform package manager. It does not install Docker, start a model server, or download model weights. Use --dry-run to preview changes or --skip-system-runtimes to skip OS packages. The installer installs every requirements*.txt manifest, including the optional local-runtime packages; no model weights are downloaded.
 
 ```bash
 python scripts/install_all.py
 
-# Optional task runtimes, installed only when requested
-python scripts/install_optional_runtimes.py --piper
-# Build whisper.cpp only when you need offline transcription (requires a pinned release tag)
+# Additional source-built runtime (Piper and Python task libraries are installed from requirements-optional.txt)
 python scripts/install_optional_runtimes.py --whisper-cpp --whisper-tag v1.7.6
+
 ```
 
 Start the backend in one terminal and the Web UI in another:
@@ -37,7 +36,7 @@ See [Development and Scripts](docs/DEVELOPMENT.md) for manual setup, dependency 
 - `requirements-optional.txt`: optional ONNX/document/image libraries for task-specific adapters.
 - `frontend/package.json`: Web UI dependencies.
 
-The dependency lists are intentionally separated so a basic install does not pull in optional task engines. Python dependencies can be installed with `python -m pip install -r requirements-dev.txt`.
+The manifests separate core, development, and task-specific dependencies for documentation and manual installs. The all-in-one installer intentionally installs every `requirements*.txt` manifest. For a minimal backend-only development environment, use `python -m pip install -r requirements-dev.txt` instead.
 
 ## Hugging Face Hub support
 
