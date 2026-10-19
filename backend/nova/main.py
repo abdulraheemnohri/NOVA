@@ -22,7 +22,7 @@ from nova.audit import append_audit, verify_audit
 from nova.config import settings
 from nova.knowledge import SearchRequest, initialize_knowledge, router as knowledge_router, search_knowledge
 from nova.litert import LiteRTError, chat, health
-from nova.model_manager import active_model_id, router as model_router
+from nova.model_manager import active_model_id, _model_enabled, router as model_router
 from nova.huggingface import router as huggingface_router
 from nova.policy import evaluate_tool
 from nova.tasks import router as tasks_router
@@ -497,6 +497,13 @@ def api_health():
 
 @app.post("/api/chat")
 def api_chat(req: ChatRequest):
+    # Re-check activation at request time: a model may have been deactivated after
+    # the UI selected it (for example by another local client).
+    model_id = active_model_id()
+    if not _model_enabled(model_id):
+        _audit("chat.blocked_inactive_model", {"model_id": model_id})
+        raise HTTPException(409, "The selected model is inactive. Activate it or select an enabled model before chatting.")
+
     # Retrieval is local and lexical today; returned source metadata is grounded in
     # the local index. Document text is untrusted evidence, never tool authority.
     features = get_feature_settings()
@@ -556,7 +563,6 @@ def api_chat(req: ChatRequest):
         "source_document_ids": [item["document_id"] for item in sources],
     })
     try:
-        model_id = active_model_id()
         preferences = get_preferences()
         answer = chat(prompt, req.max_tokens, model_id=model_id, temperature=preferences["chat_temperature"])
         # Model actions use a narrow JSON protocol. Each action is validated by the
