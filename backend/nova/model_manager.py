@@ -108,8 +108,8 @@ def model_catalog():
 def list_models():
     active = active_model_id()
     local = _local_registry()
-    entries = [dict(item, active=(item["id"] == active), enabled=_model_enabled(item["id"])) for item in CATALOG]
-    entries.extend(dict(item, active=(item["model_id"] == active), enabled=_model_enabled(item["model_id"]), status="registered_local") for item in local)
+    entries = [dict(item, active=(item["id"] == active), enabled=_model_enabled(item["id"]), deactivation_protected=(item["id"] == settings.litert_model)) for item in CATALOG]
+    entries.extend(dict(item, active=(item["model_id"] == active), enabled=_model_enabled(item["model_id"]), deactivation_protected=(item["model_id"] == settings.litert_model), status="registered_local") for item in local)
     return {"active_model_id": active, "runtime": "LiteRT-LM", "models": entries}
 
 @router.put("/activation")
