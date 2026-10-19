@@ -88,3 +88,31 @@ def test_markdown_outline_extracts_heading_levels_and_lines(monkeypatch, tmp_pat
   {"level": 1, "text": "Title", "line": 1},
   {"level": 3, "text": "Details", "line": 3},
 ]
+
+
+def test_tool_inputs_reject_missing_extra_and_wrongly_typed_fields(monkeypatch, tmp_path):
+ from fastapi import HTTPException
+ from nova.config import settings
+ from nova.agent_tools import Call, execute
+ monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+ cases = [
+  Call(name="text_stats", input={}),
+  Call(name="text_stats", input={"text": "hello", "unexpected": "value"}),
+  Call(name="text_stats", input={"text": 123}),
+  Call(name="calculator", input={"expression": "1 + 1" * 100}),
+ ]
+ for request in cases:
+  with pytest.raises(HTTPException) as error:
+   execute(request)
+  assert error.value.status_code == 422
+
+
+def test_tool_input_schema_accepts_valid_input_and_still_default_denies_unknown_tools(monkeypatch, tmp_path):
+ from fastapi import HTTPException
+ from nova.config import settings
+ from nova.agent_tools import Call, execute
+ monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
+ assert execute(Call(name="text_stats", input={"text": "hello world"}))["words"] == 2
+ with pytest.raises(HTTPException) as error:
+  execute(Call(name="not_registered", input={"anything": "value"}))
+ assert error.value.status_code == 403
