@@ -479,3 +479,54 @@ def test_api_write_rejects_approval_with_extra_payload_fields(monkeypatch, tmp_p
 
     assert result.status_code == 403, result.text
     assert not (settings.workspace / "strict.txt").exists()
+
+def test_approved_tool_execution_is_payload_bound_and_single_use(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        payload = {"tool_name": "calculator", "input": {"expression": "6 * 7"}}
+        created = client.post("/api/approvals", json={
+            "action": "agent_tool_execute",
+            "payload": payload,
+            "reason": "Approve this exact deterministic calculation",
+        })
+        assert created.status_code == 200, created.text
+        approval_id = created.json()["id"]
+        decision = client.post(f"/api/approvals/{approval_id}/decision?decision=approve")
+        assert decision.status_code == 200, decision.text
+
+        mismatch = client.post("/api/agent/tools/execute-approved", json={
+            "approval_id": approval_id,
+            "tool_name": "calculator",
+            "input": {"expression": "6 * 70"},
+        })
+        assert mismatch.status_code == 403
+
+        # A mismatched request must not consume the approval for the reviewed input.
+        exact = client.post("/api/agent/tools/execute-approved", json={
+            "approval_id": approval_id,
+            "tool_name": "calculator",
+            "input": {"expression": "6 * 7"},
+        })
+        assert exact.status_code == 200, exact.text
+        assert exact.json()["executed"] is True
+        assert exact.json()["result"]["result"] == 42
+        assert exact.json()["status"] == "consumed"
+
+        replay = client.post("/api/agent/tools/execute-approved", json={
+            "approval_id": approval_id,
+            "tool_name": "calculator",
+            "input": {"expression": "6 * 7"},
+        })
+        assert replay.status_code == 403
+
+
+def test_approved_tool_execution_rejects_unregistered_tools(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        created = client.post("/api/approvals", json={
+            "action": "agent_tool_execute",
+            "payload": {"tool_name": "shell", "input": {"command": "id"}},
+            "reason": "This must be denied",
+        })
+    assert created.status_code == 403
+
