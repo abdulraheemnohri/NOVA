@@ -7,6 +7,13 @@ Base URL: `http://127.0.0.1:8000/api`. All endpoints except `GET /health` requir
 - `PUT /scheduler/config`: persist the background-worker toggle and poll interval (5–3600 seconds) in local SQLite. This only changes scheduling; it does not grant tool permissions.
 - `POST /scheduler/run-once`: dispatch due tasks to `planned` for operator review. No commands or tools are executed.
 
+## Local model activation
+
+- `GET /api/models` returns the catalog and locally registered model inventory, including `enabled`, `active`, and `deactivation_protected` state.
+- `PUT /api/models/activation` with `{"model_id":"local-qwen","enabled":false}` deactivates a known catalog or registered model. Set `enabled:true` to reactivate it. Changes persist in SQLite and are audit logged.
+- Inactive models cannot be selected for chat. Deactivating the currently selected model returns chat selection to the operator-configured `NOVA_LITERT_MODEL` fallback. The configured fallback cannot be deactivated through this endpoint.
+- Activation controls are availability/selection controls; they do not load or unload weights or stop a LiteRT-LM process. Runtime process lifecycle remains a separate operator-controlled feature.
+
 ## Runtime
 - `GET /health`: API status, LiteRT-LM endpoint reachability, and audit-chain verification.
 - `GET /settings`: read-only runtime and policy summary.
