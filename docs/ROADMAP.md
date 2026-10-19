@@ -99,3 +99,10 @@ A feature is complete only when API, UI controls, persistence, permission checks
 - Workspace-write and rollback approvals now reject payloads with extra keys, not merely payloads whose required fields happen to match. The existing one-time claim/consumption lifecycle remains in place.
 - Regression tests cover successful real-probe behavior through a mocked local runtime, unavailable inference outcomes, advertised-ID mismatch without inference, and API-level approval payload extension attacks. Hardware/model-specific inference still requires a real-device smoke test.
 
+## Approval-bound deterministic tool execution
+- Added `agent_tool_execute` as an approval-required policy action and `POST /api/agent/tools/execute-approved` as the execution adapter.
+- Approval requests bind the registered tool name and complete input object. Execution rejects unknown tools, extra approval payload fields, tool/input mismatches, and reused approvals. Mismatches do not consume a valid approval.
+- The adapter can call only the existing registered deterministic Agent Workbench tools; it does not expose shell execution, arbitrary code, general network access, or filesystem writes. Input schema and size validation still runs inside the tool executor.
+- Execution claims the approval atomically, marks it consumed after success, marks it failed after a tool error, and leaves crash-interrupted claims for startup recovery/operator review rather than replaying them.
+- API regression tests cover exact payload binding, mismatch handling, single-use behavior, and denial of unregistered shell-like tools.
+
