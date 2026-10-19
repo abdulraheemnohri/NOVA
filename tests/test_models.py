@@ -256,3 +256,79 @@ def test_discover_local_models_does_not_register_unsupported_files(monkeypatch, 
         response = client.post("/api/models/discover")
     assert response.status_code == 200
     assert response.json()["registered_count"] == 0
+
+def test_model_runtime_check_requires_real_inference_success(monkeypatch, tmp_path):
+    import nova.model_manager as manager
+
+    artifact = tmp_path / "runtime-model.litertlm"
+    artifact.write_bytes(b"runtime verification fixture")
+    with _client(monkeypatch, tmp_path) as client:
+        registered = client.post("/api/models/register", json={
+            "model_id": "runtime-model", "name": "Runtime model", "kind": "chat",
+            "file_path": str(artifact), "format": "litertlm",
+        })
+        assert registered.status_code == 200, registered.text
+        monkeypatch.setattr(manager, "litert_health", lambda: {
+            "reachable": True, "advertised_model_ids": ["runtime-model"],
+        })
+        calls = []
+        monkeypatch.setattr(manager, "litert_chat", lambda *args, **kwargs: calls.append(kwargs) or "NOVA_RUNTIME_OK")
+        response = client.post("/api/models/runtime-check/runtime-model")
+
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["runtime_verified"] is True
+    assert data["status"] == "verified"
+    assert data["probe"]["completed"] is True
+    assert data["probe"]["response_content_returned"] is False
+    assert calls and calls[0]["model_id"] == "runtime-model"
+    assert calls[0]["max_tokens"] == 8
+    assert calls[0]["temperature"] == 0.0
+
+
+def test_model_runtime_check_blocks_unadvertised_model_without_inference(monkeypatch, tmp_path):
+    import nova.model_manager as manager
+
+    artifact = tmp_path / "runtime-mismatch.litertlm"
+    artifact.write_bytes(b"runtime verification fixture")
+    with _client(monkeypatch, tmp_path) as client:
+        registered = client.post("/api/models/register", json={
+            "model_id": "nova-model-id", "name": "Mismatch model", "kind": "chat",
+            "file_path": str(artifact), "format": "litertlm",
+        })
+        assert registered.status_code == 200, registered.text
+        monkeypatch.setattr(manager, "litert_health", lambda: {
+            "reachable": True, "advertised_model_ids": ["runtime-server-alias"],
+        })
+        calls = []
+        monkeypatch.setattr(manager, "litert_chat", lambda *args, **kwargs: calls.append(kwargs) or "unexpected")
+        response = client.post("/api/models/runtime-check/nova-model-id")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["runtime_verified"] is False
+    assert response.json()["stage"] == "model_id"
+    assert calls == []
+
+
+def test_model_runtime_check_reports_inference_failure(monkeypatch, tmp_path):
+    import nova.model_manager as manager
+    from nova.litert import LiteRTError
+
+    artifact = tmp_path / "runtime-failure.litertlm"
+    artifact.write_bytes(b"runtime verification fixture")
+    with _client(monkeypatch, tmp_path) as client:
+        registered = client.post("/api/models/register", json={
+            "model_id": "runtime-failure", "name": "Failing model", "kind": "chat",
+            "file_path": str(artifact), "format": "litertlm",
+        })
+        assert registered.status_code == 200, registered.text
+        monkeypatch.setattr(manager, "litert_health", lambda: {
+            "reachable": True, "advertised_model_ids": ["runtime-failure"],
+        })
+        monkeypatch.setattr(manager, "litert_chat", lambda *args, **kwargs: (_ for _ in ()).throw(LiteRTError("probe failed")))
+        response = client.post("/api/models/runtime-check/runtime-failure")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["runtime_verified"] is False
+    assert response.json()["status"] == "failed"
+    assert response.json()["stage"] == "inference_failed"
