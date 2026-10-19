@@ -46,6 +46,61 @@ def test_model_selection_persists_litert_model_locally(monkeypatch, tmp_path):
     assert next(m for m in listed.json()["models"] if m.get("model_id") == "local-qwen")["active"]
 
 
+
+def test_model_preflight_blocks_inactive_and_reports_integrity(monkeypatch, tmp_path):
+    with _client(monkeypatch, tmp_path) as client:
+        artifact = tmp_path / "preflight.litertlm"
+        artifact.write_bytes(b"preflight test bytes")
+        registered = client.post("/api/models/register", json={
+            "model_id": "preflight-model", "name": "Preflight model", "kind": "chat",
+            "file_path": str(artifact), "format": "litertlm",
+        })
+        assert registered.status_code == 200, registered.text
+        ready = client.get("/api/models/preflight/preflight-model")
+        assert ready.status_code == 200, ready.text
+        assert ready.json()["ready"] is True
+        assert any(item["name"] == "artifact_integrity" and item["status"] == "ready"
+                   for item in ready.json()["checks"])
+
+        artifact.write_bytes(b"changed bytes")
+        tampered = client.get("/api/models/preflight/preflight-model")
+        assert tampered.status_code == 200
+        assert tampered.json()["ready"] is False
+        assert any(item["name"] == "artifact_integrity" and item["status"] == "blocked"
+                   for item in tampered.json()["checks"])
+
+        deactivated = client.put("/api/models/activation", json={
+            "model_id": "preflight-model", "enabled": False,
+        })
+        assert deactivated.status_code == 200
+        inactive = client.get("/api/models/preflight/preflight-model")
+        assert inactive.json()["ready"] is False
+        assert any(item["name"] == "activation" and item["status"] == "blocked"
+                   for item in inactive.json()["checks"])
+
+
+def test_model_preflight_blocks_inventory_only_formats(monkeypatch, tmp_path):
+    artifact = tmp_path / "vision.onnx"
+    artifact.write_bytes(b"inventory-only fixture")
+    with _client(monkeypatch, tmp_path) as client:
+        registered = client.post("/api/models/register", json={
+            "model_id": "preflight-vision", "name": "Vision", "kind": "vision",
+            "file_path": str(artifact), "format": "onnx",
+        })
+        assert registered.status_code == 200
+        response = client.get("/api/models/preflight/preflight-vision")
+    assert response.status_code == 200
+    assert response.json()["ready"] is False
+    assert any(item["name"] == "chat_runtime" and item["status"] == "blocked"
+               for item in response.json()["checks"])
+
+
+def test_model_preflight_unknown_id_returns_404(monkeypatch, tmp_path):
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.get("/api/models/preflight/not-registered")
+    assert response.status_code == 404
+
+
 def test_non_litert_model_cannot_be_selected_for_chat(monkeypatch, tmp_path):
     with _client(monkeypatch, tmp_path) as client:
         response = client.post("/api/models/select", json={"model_id": "voice-piper-tts"})
