@@ -64,6 +64,8 @@ The System Monitor includes a best-effort Android profile when NOVA runs in an A
 
 ## Settings
 
+The Settings page includes operator preferences, runtime feature switches, AI capability controls, live status, an effective non-secret configuration inventory, and inline safety guidance. Model download limits are displayed in decimal GB (1 GB = 1,000,000,000 bytes), with the backend enforcing the lower of the saved limit and `NOVA_HUGGINGFACE_MAX_DOWNLOAD_BYTES`. See [the complete Settings and model sizing guide](docs/SETTINGS_GUIDE.md) for every editable/read-only setting, environment configuration, recommended model-size tiers, and troubleshooting steps.
+
 The Settings page persists a small, validated preference set in local SQLite: chat output-token limit, optional dashboard auto-refresh interval, and model-selection confirmation. Security-critical settings remain read-only and environment-controlled. Preference changes are audit-logged. See `docs/API.md` for the settings endpoints.
 
 ## Token-aware terminal API helper
