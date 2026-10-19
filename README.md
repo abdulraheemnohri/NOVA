@@ -8,13 +8,12 @@ NOVA is an active engineering project, not yet a feature-complete production rel
 
 ## Quick start (Windows, Linux and macOS)
 
-The cross-platform installer discovers all project requirements*.txt files, creates an isolated Python environment, installs backend and optional Python packages plus Web UI dependencies, and installs supported system tools (Node.js/npm, FFmpeg and Tesseract OCR) through the platform package manager. It does not install Docker or download model weights. Use --dry-run to preview changes or --skip-system-runtimes to skip OS packages.
+The cross-platform installer discovers all project requirements*.txt files, creates an isolated Python environment, installs backend and Web UI dependencies, installs the LiteRT-LM CLI by default, and installs supported system tools (Node.js/npm, FFmpeg and Tesseract OCR) through the platform package manager. It does not install Docker, start a model server, or download model weights. Use --dry-run to preview changes, --skip-system-runtimes to skip OS packages, or --skip-litert-lm to skip the LiteRT-LM CLI package.
 
 ```bash
 python scripts/install_all.py
 
 # Optional task runtimes, installed only when requested
-python scripts/install_optional_runtimes.py --litert-lm
 python scripts/install_optional_runtimes.py --piper
 # Build whisper.cpp only when you need offline transcription (requires a pinned release tag)
 python scripts/install_optional_runtimes.py --whisper-cpp --whisper-tag v1.7.6
@@ -48,7 +47,7 @@ Optional settings: `NOVA_HUGGINGFACE_CACHE_DIR`, `NOVA_HUGGINGFACE_MAX_DOWNLOAD_
 
 ## LiteRT-LM
 
-NOVA never falls back to Ollama, llama.cpp, or cloud providers. The default endpoint is `http://127.0.0.1:9379/v1`; override it with `NOVA_LITERT_BASE_URL` if the local server uses another loopback port. Start the local server with the command supported by your installed LiteRT-LM version. Confirm its CLI options against that version; NOVA does not automatically install or launch an inference server.
+NOVA never falls back to Ollama, llama.cpp, or cloud providers. The default endpoint is `http://127.0.0.1:9379/v1`; override it with `NOVA_LITERT_BASE_URL` if the local server uses another loopback port. The unified installer installs the LiteRT-LM CLI package by default, but it does not start the inference server or download model weights. Configure the server command supported by your installed LiteRT-LM version and verify its CLI options before enabling autostart.
 
 ## Local knowledge-assisted chat
 
