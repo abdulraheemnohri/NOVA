@@ -452,3 +452,30 @@ def test_chat_is_blocked_if_selected_model_becomes_inactive(monkeypatch, tmp_pat
     assert response.status_code == 409
     assert "inactive" in response.json()["detail"].lower()
     assert called["chat"] is False
+
+def test_api_write_rejects_approval_with_extra_payload_fields(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    content = "exact payload only"
+    approval_payload = {
+        "relative_path": "strict.txt",
+        "content_sha256": hashlib.sha256(content.encode()).hexdigest(),
+        "unexpected": "extra field",
+    }
+    with _client() as client:
+        created = client.post("/api/approvals", json={
+            "action": "workspace_write",
+            "payload": approval_payload,
+            "reason": "regression test",
+        })
+        assert created.status_code == 200, created.text
+        approval_id = created.json()["id"]
+        decision = client.post(f"/api/approvals/{approval_id}/decision?decision=approve")
+        assert decision.status_code == 200, decision.text
+        result = client.post("/api/workspace/write", json={
+            "relative_path": "strict.txt",
+            "content": content,
+            "approval_id": approval_id,
+        })
+
+    assert result.status_code == 403, result.text
+    assert not (settings.workspace / "strict.txt").exists()
