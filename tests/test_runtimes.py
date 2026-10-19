@@ -516,6 +516,7 @@ def test_runtime_inventory_reports_configured_model_advertisement_without_claimi
     from nova.config import settings
 
     monkeypatch.setattr(settings, "litert_model", "nova-model")
+    monkeypatch.setattr(runtimes, "active_model_id", lambda: "nova-model")
     monkeypatch.setattr(runtimes, "litert_health", lambda: {
         "reachable": True,
         "base_url": "http://127.0.0.1:9379/v1",
