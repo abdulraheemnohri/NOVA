@@ -30,6 +30,7 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 ## Newly implemented hardening
 - On startup, approvals left in `consuming` after an interrupted write/rollback are moved to `interrupted`, audit-logged, and excluded from automatic replay; operators must inspect the workspace and retained snapshots because a crash may occur before or after the filesystem side effect.
 - SQLite-backed API request rate limiting and a separate failed-authentication budget persist across restarts and are shared by workers using the same database; basic response security headers remain enabled. This is defense in depth, not multi-user RBAC or an edge limiter.
+- Chat re-checks the selected model's activation state at request time and returns HTTP 409 before retrieval or inference if the model was deactivated after selection; this closes a stale-selection race without claiming runtime-load compatibility.
 
 ## Recently added bounded tool capability
 - Added a read-only `text_stats` primitive to the agent tool catalog and skill workflow engine. It reports character, word and line counts for up to 10,000 characters; it does not execute generated code, access the network, or write files. UI workflow builder exposes it as an explicit step.
