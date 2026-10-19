@@ -116,23 +116,29 @@ def list_models():
 def set_model_activation(req: ModelActivationRequest):
     if not _known_model(req.model_id):
         raise HTTPException(404, "Model is not in the catalog or local registry.")
-    if not req.enabled:
-        if req.model_id == settings.litert_model:
-            raise HTTPException(409, "The configured LiteRT-LM fallback cannot be disabled; select a different runtime model in the local environment first.")
-        if active_model_id() == req.model_id:
-            raise HTTPException(409, "This is the selected chat model. Select another enabled LiteRT-LM model before deactivating it.")
+    if not req.enabled and req.model_id == settings.litert_model:
+        raise HTTPException(409, "The configured LiteRT-LM fallback cannot be disabled; change NOVA_LITERT_MODEL in the local environment first.")
+    was_selected = active_model_id() == req.model_id
     con = _connect()
     try:
+        con.execute("BEGIN IMMEDIATE")
+        if not req.enabled and was_selected:
+            # Fall back to the operator-configured LiteRT-LM model before marking this model inactive.
+            con.execute("DELETE FROM nova_local_settings WHERE key='active_model_id' AND value=?", (req.model_id,))
         con.execute(
             "INSERT INTO model_status(model_id,enabled,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) "
             "ON CONFLICT(model_id) DO UPDATE SET enabled=excluded.enabled,updated_at=CURRENT_TIMESTAMP",
             (req.model_id, int(req.enabled)),
         )
         con.commit()
+    except Exception:
+        con.rollback()
+        raise
     finally:
         con.close()
-    append_audit(settings.audit_path, "model_activation_changed", {"model_id": req.model_id, "enabled": req.enabled})
-    return {"model_id": req.model_id, "enabled": req.enabled, "status": "active" if req.enabled else "inactive"}
+    fallback = active_model_id()
+    append_audit(settings.audit_path, "model_activation_changed", {"model_id": req.model_id, "enabled": req.enabled, "previously_selected": was_selected, "active_model_id": fallback})
+    return {"model_id": req.model_id, "enabled": req.enabled, "status": "active" if req.enabled else "inactive", "active_model_id": fallback}
 
 @router.post("/select")
 def select_model(req: SelectModelRequest):
