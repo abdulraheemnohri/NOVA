@@ -99,7 +99,7 @@ app.state.rate_limiter = PersistentRateLimiter(lambda: settings.database_path)
 async def require_local_api_token(request: Request, call_next):
     # Health is intentionally public for local process supervision; all other API routes
     # require the generated, file-backed bearer token.
-    if request.url.path == "/api/health" or (request.url.path == "/api/whatsapp/webhook" and request.method in {"GET", "POST"}) or not request.url.path.startswith("/api/"):
+    if request.url.path == "/api/health" or not request.url.path.startswith("/api/"):
         return await call_next(request)
     try:
         expected = settings.api_token_file.read_text(encoding="utf-8").strip()
