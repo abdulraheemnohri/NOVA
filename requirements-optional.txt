@@ -1,5 +1,5 @@
-# Optional task-specific libraries and CLI runtimes. These are NOT chat inference fallbacks.
-# The all-in-one installer installs every requirements*.txt manifest. Runtime processes remain idle until a task needs them.
+# Additional local task libraries and CLI runtimes. These are NOT chat inference fallbacks.
+# The all-in-one installer installs this manifest too; runtime processes remain idle until a task needs them.
 # Official LiteRT-LM CLI: primary chat inference runtime (service is not auto-started).
 litert-lm>=0.18,<1
 
