@@ -7,6 +7,13 @@ Base URL: `http://127.0.0.1:8000/api`. All endpoints except `GET /health` requir
 - `PUT /scheduler/config`: persist the background-worker toggle and poll interval (5–3600 seconds) in local SQLite. This only changes scheduling; it does not grant tool permissions.
 - `POST /scheduler/run-once`: dispatch due tasks to `planned` for operator review. No commands or tools are executed.
 
+## Hugging Face model size limits
+
+- `GET /models/huggingface/status` reports the effective `max_download_bytes` and `max_download_gb`, the environment hard ceiling in bytes and decimal GB, the size unit, and local cache storage.
+- The Settings UI uses decimal GB: 1 GB = 1,000,000,000 bytes. The default hard cap is 20 GB; `NOVA_HUGGINGFACE_MAX_DOWNLOAD_BYTES` can lower or configure that cap, and the UI cannot raise the saved limit above it.
+- Each download is checked against repository metadata, response length when available, and a streaming byte counter. Available disk space is checked before and during download with a 256 MiB reserve. Incomplete artifacts are discarded; completed artifacts are atomically placed in the cache and SHA-256 hashed.
+- The per-artifact download ceiling is not a cache-total limit or a RAM-use estimate. Actual inference memory also depends on context/KV cache, runtime buffers and hardware. Only compatible registered `.litertlm` artifacts can be selected for chat.
+
 ## Local model activation
 
 - `GET /api/models` returns the catalog and locally registered model inventory, including `enabled`, `active`, and `deactivation_protected` state.
