@@ -38,9 +38,9 @@ def install_selected(*, litert_lm: bool, piper: bool, whisper_cpp: bool,
 
     packages: list[str] = []
     if litert_lm:
-        packages.append("litert-lm")
+        packages.append("litert-lm>=0.18,<1")
     if piper:
-        packages.append("piper-tts")
+        packages.append("piper-tts>=1.2,<2")
     if packages:
         run([python, "-m", "pip", "install", "--upgrade", *packages], dry_run=dry_run)
 
