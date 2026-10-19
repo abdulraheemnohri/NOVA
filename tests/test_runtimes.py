@@ -42,6 +42,7 @@ def test_runtime_inventory_separates_chat_and_specialized_runtimes(tmp_path, mon
         assert entries["litert-lm"]["status"] == "ready"
         assert entries["litert-lm"]["endpoint_reachable"] is True
         assert entries["litert-lm"]["model_load_state"] == "unknown"
+        assert entries["litert-lm"]["configured_model_advertised"] is None
         assert "model load state is not reported" in entries["litert-lm"]["policy"]
         assert entries["whisper-cpp"]["detected"] is True
         assert entries["onnx-runtime"]["detected"] is True
@@ -505,3 +506,33 @@ def test_litert_autostart_status_is_read_only_and_reports_capability(tmp_path, m
     data = response.json()
     assert data["supported"] is False
     assert data["service"] == "nova-litert-lm.service"
+
+
+
+def test_runtime_inventory_reports_configured_model_advertisement_without_claiming_loaded(tmp_path, monkeypatch):
+    from nova import runtimes
+    from nova.config import settings
+
+    monkeypatch.setattr(settings, "litert_model", "nova-model")
+    monkeypatch.setattr(runtimes, "litert_health", lambda: {
+        "reachable": True,
+        "base_url": "http://127.0.0.1:9379/v1",
+        "advertised_model_ids": ["nova-model", "other-model"],
+    })
+    monkeypatch.setattr(runtimes, "_resolve_executable", lambda configured, candidates: None)
+    monkeypatch.setattr(runtimes, "_module_available", lambda name: False)
+
+    inventory = runtimes.runtime_inventory()
+    entry = next(item for item in inventory["runtimes"] if item["id"] == "litert-lm")
+    assert entry["configured_model_advertised"] is True
+    assert entry["model_load_state"] == "unknown"
+
+    monkeypatch.setattr(runtimes, "litert_health", lambda: {
+        "reachable": True,
+        "base_url": "http://127.0.0.1:9379/v1",
+        "advertised_model_ids": ["other-model"],
+    })
+    inventory = runtimes.runtime_inventory()
+    entry = next(item for item in inventory["runtimes"] if item["id"] == "litert-lm")
+    assert entry["configured_model_advertised"] is False
+    assert entry["model_load_state"] == "unknown"
