@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 from nova.audit import append_audit
 from nova.config import settings
 from nova.litert import health as litert_health
+from nova.model_manager import active_model_id
 from nova.settings_preferences import get_feature_settings
 
 router = APIRouter(prefix="/api/runtimes", tags=["model runtimes"])
@@ -132,6 +133,8 @@ def runtime_inventory() -> dict[str, Any]:
     whisper_validation = _validate_whisper_model(whisper_model)
     piper_validation = _validate_piper_voice(piper_model, piper_metadata)
     litert = litert_health()
+    selected_model_id = active_model_id()
+    advertised_model_ids = litert.get("advertised_model_ids")
     features = get_feature_settings()
     onnx_available = features["onnx_runtime_enabled"] and _module_available("onnxruntime")
     tflite_available = _module_available("tflite_runtime") or _module_available("ai_edge_litert")
@@ -160,11 +163,16 @@ def runtime_inventory() -> dict[str, Any]:
             "endpoint_reachable": litert.get("reachable") is True,
             "endpoint": litert.get("base_url", settings.litert_base_url),
             "model_configured": settings.litert_model,
-            # The /models catalog only advertises IDs; it does not prove that weights are loaded.
+            "active_model_id": selected_model_id,
+            # /models advertises IDs, not proof that model weights are loaded.
             "configured_model_advertised": (
-                settings.litert_model in litert.get("advertised_model_ids", [])
-                if litert.get("reachable") is True
-                and isinstance(litert.get("advertised_model_ids"), list)
+                settings.litert_model in advertised_model_ids
+                if litert.get("reachable") is True and isinstance(advertised_model_ids, list)
+                else None
+            ),
+            "active_model_advertised": (
+                selected_model_id in advertised_model_ids
+                if litert.get("reachable") is True and isinstance(advertised_model_ids, list)
                 else None
             ),
             "model_load_state": "unknown",
