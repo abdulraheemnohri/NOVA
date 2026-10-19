@@ -20,7 +20,9 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 - Runtime Manager UI for engine discovery, transcription, speech synthesis and local audio playback. ONNX/TFLite model execution and llama.cpp chat fallback remain disabled.
 
 - Startup recovery marks abandoned autonomous runs as `interrupted`, preserves the last checkpoint and audit trail, and deliberately does not replay side effects automatically. Interrupted runs can request a fresh validated plan for operator review without executing tools.
-- Autonomous planner now preflights every proposed step and exact tool input schema before any execution; invalid arithmetic, unexpected fields, unsupported tools, overlong inputs, and malformed reasons reject the whole plan before partial execution. Operators can request cancellation of a running workflow; cancellation is persisted and observed between tool steps, with a terminal cancelled state and audit event.\n\n## Newly implemented self-improvement foundation
+- Autonomous planner now preflights every proposed step and exact tool input schema before any execution; invalid arithmetic, unexpected fields, unsupported tools, overlong inputs, and malformed reasons reject the whole plan before partial execution. Operators can request cancellation of a running workflow; cancellation is persisted and observed between tool steps, with a terminal cancelled state and audit event.
+
+## Newly implemented self-improvement foundation
 - Persisted self-created skills with bounded Markdown instructions, tags, draft-by-default lifecycle, explicit activation, versioning, and audit events.
 - Self-created tool proposals are declarative only: proposals must map exactly to existing bounded calculator or local knowledge-search primitives and their fixed input schemas. Proposals require a separate review transition; generated code is never executed and model output cannot register a new runtime capability.
 - API endpoints are under `/api/self/skills` and `/api/self/tools`; the Self-Improvement Lab UI supports creation and review. Skill execution accepts explicit structured steps only, preflights every step, limits runs to five calls to existing calculator/local knowledge-search primitives, persists run history, and emits audit events. Natural-language instructions are not interpreted as executable plans.
@@ -54,7 +56,10 @@ This roadmap distinguishes implemented behavior from planned work. A screen or A
 9. Multi-user RBAC, CSRF protections for browser-session deployments, distributed/edge rate-limit enforcement and encrypted sensitive storage.
 10. Multi-agent state machine, critic/verifier, adversarial prompt-injection tests, and air-gapped integration tests against supported runtimes and target hardware. The bounded local workflow builder, conditional execution, checkpoints, run history, and cancellation controls are implemented. Skill execution currently has a deliberately small allowlist and does not execute arbitrary generated code.
 
-## Release validation entry point\n- [x] Added `docs/REAL_DEVICE_TESTING.md` with Debian/Ubuntu setup, secrets/configuration guidance, LiteRT-LM setup boundaries, model download workflow, offline staging and a real-device smoke-test matrix. The checklist is documentation, not evidence that target hardware tests have already passed.\n\n## Definition of done
+## Release validation entry point
+- [x] Added `docs/REAL_DEVICE_TESTING.md` with Debian/Ubuntu setup, secrets/configuration guidance, LiteRT-LM setup boundaries, model download workflow, offline staging and a real-device smoke-test matrix. The checklist is documentation, not evidence that target hardware tests have already passed.
+
+## Definition of done
 A feature is complete only when API, UI controls, persistence, permission checks, audit events, tests, docs, and offline behavior exist and pass CI. Never claim GPU/NPU or model compatibility without a real target-device test.
 
 - [x] Opt-in GitHub updater with trusted repository checks, validation, rollback on test failure, scheduled checks/install settings, and explicit Linux/systemd reboot control. A process restart is still required when reboot is disabled.
