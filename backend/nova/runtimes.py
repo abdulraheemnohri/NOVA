@@ -134,7 +134,7 @@ def runtime_inventory() -> dict[str, Any]:
     piper_validation = _validate_piper_voice(piper_model, piper_metadata)
     litert = litert_health()
     selected_model_id = active_model_id()
-    advertised_model_ids = litert.get("advertised_model_ids", [])
+    advertised_model_ids = litert.get("advertised_model_ids")
     features = get_feature_settings()
     onnx_available = features["onnx_runtime_enabled"] and _module_available("onnxruntime")
     tflite_available = _module_available("tflite_runtime") or _module_available("ai_edge_litert")
