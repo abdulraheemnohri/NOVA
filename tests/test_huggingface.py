@@ -34,6 +34,9 @@ def test_huggingface_status_does_not_expose_token(monkeypatch, tmp_path):
     assert response.json()["storage"]["available"] is True
     assert response.json()["storage"]["free_bytes"] > 0
     assert response.json()["hard_max_download_bytes"] == settings.huggingface_max_download_bytes
+    assert response.json()["max_download_gb"] == round(response.json()["max_download_bytes"] / 1_000_000_000, 3)
+    assert response.json()["hard_max_download_gb"] == round(settings.huggingface_max_download_bytes / 1_000_000_000, 3)
+    assert response.json()["size_unit"] == "decimal GB (1 GB = 1,000,000,000 bytes)"
     assert response.json()["inference_policy"].startswith("Hugging Face supplies files/metadata only")
 
 
