@@ -102,3 +102,58 @@ def test_litert_registration_requires_expected_extension(monkeypatch, tmp_path):
         })
     assert response.status_code == 422
     assert ".litertlm" in response.json()["detail"]
+
+
+def test_model_activation_is_persisted_and_inactive_models_cannot_be_selected(monkeypatch, tmp_path):
+    with _client(monkeypatch, tmp_path) as client:
+        artifact = tmp_path / "activation.litertlm"
+        artifact.write_bytes(b"activation test model")
+        registered = client.post("/api/models/register", json={
+            "model_id": "activation-model", "name": "Activation model", "kind": "chat",
+            "file_path": str(artifact), "format": "litertlm",
+        })
+        assert registered.status_code == 200, registered.text
+        selected = client.post("/api/models/select", json={"model_id": "activation-model"})
+        assert selected.status_code == 200, selected.text
+
+        disabled = client.put("/api/models/activation", json={
+            "model_id": "activation-model", "enabled": False,
+        })
+        assert disabled.status_code == 200, disabled.text
+        assert disabled.json()["status"] == "inactive"
+        assert disabled.json()["active_model_id"] == settings.litert_model
+
+        listing = client.get("/api/models")
+        item = next(m for m in listing.json()["models"] if m.get("model_id") == "activation-model")
+        assert item["enabled"] is False
+        assert item["active"] is False
+
+        blocked = client.post("/api/models/select", json={"model_id": "activation-model"})
+        assert blocked.status_code == 409
+        assert "inactive" in blocked.json()["detail"]
+
+        enabled = client.put("/api/models/activation", json={
+            "model_id": "activation-model", "enabled": True,
+        })
+        assert enabled.status_code == 200
+        assert enabled.json()["enabled"] is True
+        selected_again = client.post("/api/models/select", json={"model_id": "activation-model"})
+        assert selected_again.status_code == 200
+
+
+def test_configured_fallback_model_cannot_be_deactivated(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "litert_model", "litert-small-instruct")
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.put("/api/models/activation", json={
+            "model_id": "litert-small-instruct", "enabled": False,
+        })
+        assert response.status_code == 409
+        assert "fallback cannot be disabled" in response.json()["detail"]
+
+
+def test_unknown_model_activation_is_rejected(monkeypatch, tmp_path):
+    with _client(monkeypatch, tmp_path) as client:
+        response = client.put("/api/models/activation", json={
+            "model_id": "not-a-known-model", "enabled": False,
+        })
+        assert response.status_code == 404

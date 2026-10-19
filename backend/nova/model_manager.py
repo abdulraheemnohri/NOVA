@@ -51,6 +51,10 @@ class RegisterModelRequest(BaseModel):
     format: str = Field(min_length=1, max_length=50)
     sha256: str | None = Field(default=None, pattern=r"^[a-fA-F0-9]{64}$")
 
+class ModelActivationRequest(BaseModel):
+    model_id: str = Field(min_length=1, max_length=120)
+    enabled: bool
+
 def _connect():
     settings.database_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(settings.database_path)
@@ -61,6 +65,9 @@ def _connect():
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
     con.execute("""CREATE TABLE IF NOT EXISTS nova_local_settings (
         key TEXT PRIMARY KEY, value TEXT NOT NULL)""")
+    con.execute("""CREATE TABLE IF NOT EXISTS model_status (
+        model_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
     con.commit()
     return con
 
@@ -71,6 +78,19 @@ def active_model_id() -> str:
         return str(row["value"]) if row else settings.litert_model
     finally:
         con.close()
+
+def _model_enabled(model_id: str) -> bool:
+    con = _connect()
+    try:
+        row = con.execute("SELECT enabled FROM model_status WHERE model_id=?", (model_id,)).fetchone()
+        return bool(row["enabled"]) if row else True
+    finally:
+        con.close()
+
+def _known_model(model_id: str) -> bool:
+    if any(item["id"] == model_id for item in CATALOG):
+        return True
+    return any(item["model_id"] == model_id for item in _local_registry())
 
 def _local_registry() -> list[dict[str, Any]]:
     con = _connect()
@@ -88,12 +108,44 @@ def model_catalog():
 def list_models():
     active = active_model_id()
     local = _local_registry()
-    entries = [dict(item, active=(item["id"] == active)) for item in CATALOG]
-    entries.extend(dict(item, active=(item["model_id"] == active), status="registered_local") for item in local)
+    entries = [dict(item, active=(item["id"] == active), enabled=_model_enabled(item["id"]), deactivation_protected=(item["id"] == settings.litert_model)) for item in CATALOG]
+    entries.extend(dict(item, active=(item["model_id"] == active), enabled=_model_enabled(item["model_id"]), deactivation_protected=(item["model_id"] == settings.litert_model), status="registered_local") for item in local)
     return {"active_model_id": active, "runtime": "LiteRT-LM", "models": entries}
+
+@router.put("/activation")
+def set_model_activation(req: ModelActivationRequest):
+    if not _known_model(req.model_id):
+        raise HTTPException(404, "Model is not in the catalog or local registry.")
+    if not req.enabled and req.model_id == settings.litert_model:
+        raise HTTPException(409, "The configured LiteRT-LM fallback cannot be disabled; change NOVA_LITERT_MODEL in the local environment first.")
+    was_selected = False
+    con = _connect()
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        selected = con.execute("SELECT value FROM nova_local_settings WHERE key='active_model_id'").fetchone()
+        was_selected = (str(selected["value"]) if selected else settings.litert_model) == req.model_id
+        if not req.enabled and was_selected:
+            # Fall back to the operator-configured LiteRT-LM model before marking this model inactive.
+            con.execute("DELETE FROM nova_local_settings WHERE key='active_model_id' AND value=?", (req.model_id,))
+        con.execute(
+            "INSERT INTO model_status(model_id,enabled,updated_at) VALUES(?,?,CURRENT_TIMESTAMP) "
+            "ON CONFLICT(model_id) DO UPDATE SET enabled=excluded.enabled,updated_at=CURRENT_TIMESTAMP",
+            (req.model_id, int(req.enabled)),
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+    fallback = active_model_id()
+    append_audit(settings.audit_path, "model_activation_changed", {"model_id": req.model_id, "enabled": req.enabled, "previously_selected": was_selected, "active_model_id": fallback})
+    return {"model_id": req.model_id, "enabled": req.enabled, "status": "active" if req.enabled else "inactive", "active_model_id": fallback}
 
 @router.post("/select")
 def select_model(req: SelectModelRequest):
+    if not _model_enabled(req.model_id):
+        raise HTTPException(409, "This model is inactive. Activate it before selecting it for chat.")
     candidate = next((item for item in _local_registry() if item["model_id"] == req.model_id), None)
     if candidate is None:
         catalog_entry = next((item for item in CATALOG if item["id"] == req.model_id), None)
@@ -125,8 +177,16 @@ def select_model(req: SelectModelRequest):
         raise HTTPException(400, "This model type has no LiteRT-LM inference adapter; it cannot be selected for chat.")
     con = _connect()
     try:
+        con.execute("BEGIN IMMEDIATE")
+        status = con.execute("SELECT enabled FROM model_status WHERE model_id=?", (req.model_id,)).fetchone()
+        if status is not None and not bool(status["enabled"]):
+            con.rollback()
+            raise HTTPException(409, "This model is inactive. Activate it before selecting it for chat.")
         con.execute("INSERT INTO nova_local_settings(key,value) VALUES('active_model_id',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (req.model_id,))
         con.commit()
+    except Exception:
+        con.rollback()
+        raise
     finally:
         con.close()
     append_audit(settings.audit_path, "model_selected", {"model_id": req.model_id, "runtime": "LiteRT-LM"})
