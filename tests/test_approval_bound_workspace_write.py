@@ -201,3 +201,31 @@ def test_concurrent_workspace_write_approval_can_be_claimed_only_once(tmp_path, 
         con.close()
     assert approval["status"] == "consumed"
     assert snapshots["count"] == 1
+
+def test_workspace_write_rejects_approval_with_extra_payload_fields(tmp_path, monkeypatch):
+    workspace = _isolate(tmp_path, monkeypatch)
+    content = "reviewed"
+    approval = main.create_approval(main.ApprovalRequest(
+        action="workspace_write",
+        payload={
+            "relative_path": "exact.txt",
+            "content_sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            "extra_authority": "must not be ignored",
+        },
+        reason="Test exact approval payload",
+    ))
+    main.decide(approval["id"], "approve")
+
+    with pytest.raises(HTTPException) as exc:
+        main.write_file(main.FileWriteRequest(
+            relative_path="exact.txt", content=content, approval_id=approval["id"]
+        ))
+    assert exc.value.status_code == 403
+    assert not (workspace / "exact.txt").exists()
+
+    con = main._db()
+    try:
+        row = con.execute("SELECT status FROM approvals WHERE id=?", (approval["id"],)).fetchone()
+    finally:
+        con.close()
+    assert row["status"] == "approved"

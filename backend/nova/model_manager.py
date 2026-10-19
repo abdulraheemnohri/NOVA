@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from nova.config import settings
 from nova.audit import append_audit
+from nova.litert import LiteRTError, chat as litert_chat, health as litert_health
 
 router = APIRouter(prefix="/api/models", tags=["local model management"])
 
@@ -468,3 +469,98 @@ def register_local_model(req: RegisterModelRequest):
     return {"registered": True, "model_id": req.model_id, "sha256": actual,
             "size_bytes": resolved.stat().st_size, "format": req.format.lower(),
             "inference_enabled": req.format.lower() == "litertlm"}
+
+
+@router.post("/runtime-check/{model_id}")
+def model_runtime_check(model_id: str):
+    """Actively verify that the configured local runtime can serve this exact model ID.
+
+    Unlike /preflight, this endpoint sends a tiny prompt to LiteRT-LM and may load
+    model weights in the runtime. It never changes NOVA's active model selection.
+    """
+    preflight = model_preflight(model_id)
+    if not preflight["ready"]:
+        result = {
+            "model_id": model_id,
+            "runtime_verified": False,
+            "status": "blocked",
+            "stage": "preflight",
+            "preflight": preflight,
+            "detail": "Model preflight has blockers; no inference probe was sent.",
+        }
+        append_audit(settings.audit_path, "model_runtime_check.blocked", {
+            "model_id": model_id, "stage": "preflight", "runtime_verified": False,
+        })
+        return result
+
+    try:
+        runtime = litert_health()
+    except LiteRTError:
+        runtime = {"reachable": False, "message": "LiteRT-LM endpoint configuration is invalid or unavailable."}
+    if not runtime.get("reachable"):
+        result = {
+            "model_id": model_id,
+            "runtime_verified": False,
+            "status": "unavailable",
+            "stage": "runtime_health",
+            "preflight": preflight,
+            "runtime": runtime,
+            "detail": "LiteRT-LM endpoint is unavailable or incompatible; no inference probe was sent.",
+        }
+        append_audit(settings.audit_path, "model_runtime_check.failed", {
+            "model_id": model_id, "stage": "runtime_health", "runtime_verified": False,
+        })
+        return result
+
+    advertised_ids = runtime.get("advertised_model_ids", [])
+    if model_id not in advertised_ids:
+        result = {
+            "model_id": model_id,
+            "runtime_verified": False,
+            "status": "blocked",
+            "stage": "model_id",
+            "preflight": preflight,
+            "runtime": runtime,
+            "detail": "The selected model ID is not advertised by the LiteRT-LM endpoint; no inference probe was sent.",
+        }
+        append_audit(settings.audit_path, "model_runtime_check.blocked", {
+            "model_id": model_id, "stage": "model_id", "runtime_verified": False,
+        })
+        return result
+
+    try:
+        output = litert_chat(
+            "Reply with the exact text NOVA_RUNTIME_OK.",
+            max_tokens=8,
+            model_id=model_id,
+            temperature=0.0,
+        )
+    except LiteRTError:
+        output = ""
+
+    verified = isinstance(output, str) and bool(output.strip())
+    result = {
+        "model_id": model_id,
+        "runtime_verified": verified,
+        "status": "verified" if verified else "failed",
+        "stage": "inference" if verified else "inference_failed",
+        "preflight": preflight,
+        "runtime": {
+            "reachable": True,
+            "advertised_model_ids": advertised_ids,
+        },
+        "probe": {
+            "completed": verified,
+            "response_characters": len(output) if isinstance(output, str) else 0,
+            "response_content_returned": False,
+        },
+        "detail": (
+            "LiteRT-LM accepted a bounded probe and returned text for this model ID."
+            if verified else
+            "LiteRT-LM did not complete the inference probe; check runtime logs and model compatibility."
+        ),
+    }
+    append_audit(settings.audit_path, "model_runtime_check.completed" if verified else "model_runtime_check.failed", {
+        "model_id": model_id, "stage": result["stage"], "runtime_verified": verified,
+    })
+    return result
