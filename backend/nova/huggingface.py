@@ -214,7 +214,10 @@ def huggingface_status():
             "token_source": ("environment/config setting" if (settings.huggingface_token or os.environ.get("NOVA_HUGGINGFACE_TOKEN", "").strip()) else ("private local token file" if _stored_token() else "not configured")),
             "cache_dir": str(settings.huggingface_cache_dir),
             "max_download_bytes": features["max_model_download_bytes"],
+            "max_download_gb": round(features["max_model_download_bytes"] / 1_000_000_000, 3),
             "hard_max_download_bytes": int(settings.huggingface_max_download_bytes),
+            "hard_max_download_gb": round(int(settings.huggingface_max_download_bytes) / 1_000_000_000, 3),
+            "size_unit": "decimal GB (1 GB = 1,000,000,000 bytes)",
             "storage": _cache_storage_status(),
             "inference_policy": "Hugging Face supplies files/metadata only; chat inference remains LiteRT-LM-only."}
 
@@ -300,7 +303,7 @@ def download_huggingface_artifact(req: DownloadRequest):
         size = lfs.get("size")
     limit = min(req.max_bytes or features["max_model_download_bytes"], features["max_model_download_bytes"])
     if isinstance(size, int) and size > limit:
-        raise HTTPException(413, f"Artifact size ({size} bytes) exceeds the configured download limit ({limit} bytes).")
+        raise HTTPException(413, f"Artifact size ({size / 1_000_000_000:.3f} GB) exceeds the configured download limit ({limit / 1_000_000_000:.3f} GB; decimal units).")
 
     settings.huggingface_cache_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -344,14 +347,14 @@ def download_huggingface_artifact(req: DownloadRequest):
         with os.fdopen(fd, "wb") as output, _request(url, timeout=60) as response:
             length = response.headers.get("Content-Length")
             if length and length.isdigit() and int(length) > limit:
-                raise HTTPException(413, "Download response exceeds the configured size limit.")
+                raise HTTPException(413, f"Download response exceeds the configured limit of {limit / 1_000_000_000:.3f} GB (decimal units).")
             while True:
                 block = response.read(_CHUNK)
                 if not block:
                     break
                 total += len(block)
                 if total > limit:
-                    raise HTTPException(413, "Download exceeded the configured size limit; partial artifact discarded.")
+                    raise HTTPException(413, f"Download exceeded the configured limit of {limit / 1_000_000_000:.3f} GB; partial artifact discarded.")
                 try:
                     free_now = shutil.disk_usage(destination.parent).free
                 except OSError as exc:
