@@ -43,6 +43,8 @@ def test_runtime_inventory_separates_chat_and_specialized_runtimes(tmp_path, mon
         assert entries["litert-lm"]["endpoint_reachable"] is True
         assert entries["litert-lm"]["model_load_state"] == "unknown"
         assert entries["litert-lm"]["configured_model_advertised"] is None
+        assert entries["litert-lm"]["active_model_advertised"] is None
+        assert entries["litert-lm"]["active_model_id"]
         assert "model load state is not reported" in entries["litert-lm"]["policy"]
         assert entries["whisper-cpp"]["detected"] is True
         assert entries["onnx-runtime"]["detected"] is True
@@ -525,6 +527,8 @@ def test_runtime_inventory_reports_configured_model_advertisement_without_claimi
     inventory = runtimes.runtime_inventory()
     entry = next(item for item in inventory["runtimes"] if item["id"] == "litert-lm")
     assert entry["configured_model_advertised"] is True
+    assert entry["active_model_id"] == "nova-model"
+    assert entry["active_model_advertised"] is True
     assert entry["model_load_state"] == "unknown"
 
     monkeypatch.setattr(runtimes, "litert_health", lambda: {
@@ -535,4 +539,5 @@ def test_runtime_inventory_reports_configured_model_advertisement_without_claimi
     inventory = runtimes.runtime_inventory()
     entry = next(item for item in inventory["runtimes"] if item["id"] == "litert-lm")
     assert entry["configured_model_advertised"] is False
+    assert entry["active_model_advertised"] is False
     assert entry["model_load_state"] == "unknown"
