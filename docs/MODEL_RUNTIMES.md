@@ -121,3 +121,8 @@ Execution requires a previously approved request plus a second confirmation that
 Opening **Model Manager** triggers a bounded scan of NOVA's configured Hugging Face cache and `./data/models`. The scan recognizes `.litertlm`, `.gguf`, `.tflite`, `.onnx`, `.safetensors`, and `.bin` artifacts, calculates SHA-256 for newly discovered files, and records them in the local registry. It scans at most 10,000 file entries and registers at most 200 new artifacts per pass. Repeated scans skip registered paths. Discovery does not download, execute, activate, or prove compatibility of a model. Only `.litertlm` artifacts are eligible for NOVA chat selection; other formats are inventory-only until a compatible task adapter exists.
 
 The device profile endpoint reads host RAM from Linux `/proc/meminfo` or Windows `GlobalMemoryStatusEx` where available. The low-end profile is up to 4 GiB RAM, mid-range is over 4 through 8 GiB, and high-end is over 8 GiB. The conservative budget is an advisory 60% of currently available RAM, not a prediction of exact model fit. GPU/VRAM is reported as unknown when reliable cross-platform detection is unavailable. Always account for model quantization, context/KV cache, runtime overhead and other running processes.
+
+
+## Model compatibility preflight
+
+The read-only `GET /api/models/preflight/{model_id}` endpoint checks activation state, chat-runtime format eligibility, local artifact presence, registered SHA-256 integrity, and advisory available-memory guidance. It returns explicit blockers and warnings. It does not download, activate, load, or execute artifacts. A passing preflight is not proof that the installed LiteRT-LM build can load a particular model; verify that on the target device.

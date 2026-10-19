@@ -169,6 +169,92 @@ def device_profile():
             "runtime_policy": "Recommendations only; verify artifact/runtime support and context memory before loading."}
 
 
+@router.get("/preflight/{model_id}")
+def model_preflight(model_id: str):
+    """Read-only compatibility checks; this endpoint never loads or executes model artifacts."""
+    catalog_entry = next((item for item in CATALOG if item["id"] == model_id), None)
+    local_entry = next((item for item in _local_registry() if item["model_id"] == model_id), None)
+    if catalog_entry is None and local_entry is None:
+        raise HTTPException(404, "Model is not in the catalog or local registry.")
+
+    checks: list[dict[str, Any]] = []
+    blockers = 0
+    warnings = 0
+
+    def check(name: str, status: str, detail: str) -> None:
+        nonlocal blockers, warnings
+        checks.append({"name": name, "status": status, "detail": detail})
+        if status == "blocked":
+            blockers += 1
+        elif status == "warning":
+            warnings += 1
+
+    enabled = _model_enabled(model_id)
+    check("activation", "ready" if enabled else "blocked",
+          "Model is enabled." if enabled else "Model is inactive; activate it before selecting it.")
+
+    fmt = str((local_entry or catalog_entry or {}).get("format", "litertlm" if model_id == settings.litert_model else "")).lower()
+    if fmt != "litertlm":
+        check("chat_runtime", "blocked", "Only .litertlm artifacts are eligible for LiteRT-LM chat; this format is inventory-only.")
+    elif local_entry is None and model_id != settings.litert_model:
+        check("local_registration", "blocked", "Catalog entries must be registered as local artifacts before chat selection.")
+    else:
+        check("chat_runtime", "ready", "Artifact format is eligible for the LiteRT-LM chat adapter.")
+
+    artifact_size = None
+    if local_entry is not None:
+        path = Path(str(local_entry.get("file_path", "")))
+        try:
+            if not path.is_file():
+                check("artifact_presence", "blocked", "Registered model artifact is missing.")
+            else:
+                artifact_size = path.stat().st_size
+                if fmt == "litertlm" and path.suffix.lower() != ".litertlm":
+                    check("artifact_format", "blocked", "LiteRT-LM model paths must end in .litertlm.")
+                else:
+                    digest = hashlib.sha256()
+                    with path.open("rb") as stream:
+                        for block in iter(lambda: stream.read(1024 * 1024), b""):
+                            digest.update(block)
+                    if digest.hexdigest() != local_entry.get("sha256"):
+                        check("artifact_integrity", "blocked", "SHA-256 differs from the registered checksum.")
+                    else:
+                        check("artifact_integrity", "ready", "Artifact exists and SHA-256 matches the registry.")
+        except OSError:
+            check("artifact_presence", "blocked", "Registered model artifact cannot be read.")
+    elif model_id == settings.litert_model:
+        check("artifact_presence", "warning", "This is the configured model ID; NOVA cannot verify runtime-side file availability from the registry.")
+    else:
+        check("artifact_presence", "blocked", "No registered local artifact is available.")
+
+    device = _memory_snapshot()
+    required_gb = (catalog_entry or {}).get("ram_gb_min")
+    if required_gb is not None and device.get("ram_available_bytes") is not None:
+        available_gb = device["ram_available_bytes"] / (1024 ** 3)
+        if available_gb < float(required_gb):
+            check("memory", "warning", f"Available RAM is about {available_gb:.2f} GiB; catalog guidance is {required_gb} GiB minimum. This is advisory, not a load guarantee.")
+        else:
+            check("memory", "ready", f"Available RAM is about {available_gb:.2f} GiB against {required_gb} GiB catalog guidance.")
+    elif device.get("ram_available_bytes") is None:
+        check("memory", "warning", "Available RAM could not be detected; validate memory fit on the target device.")
+    else:
+        check("memory", "warning", "No minimum RAM estimate is defined for this local artifact; model size, quantization and context affect memory use.")
+
+    if artifact_size is not None:
+        checks.append({"name": "artifact_size", "status": "info", "detail": f"Artifact size is {artifact_size} bytes; file size is not a reliable estimate of runtime memory use."})
+    ready = blockers == 0
+    return {
+        "model_id": model_id,
+        "ready": ready,
+        "status": "blocked" if not ready else ("warning" if warnings else "ready"),
+        "blocker_count": blockers,
+        "warning_count": warnings,
+        "device": device,
+        "checks": checks,
+        "safety": "Read-only advisory preflight. It never downloads, activates, loads, or executes a model. A ready result does not prove LiteRT-LM runtime compatibility or successful inference."
+    }
+
+
 @router.post("/discover")
 def discover_local_models():
     """Automatically inventory artifacts under NOVA's known model/cache roots only."""
