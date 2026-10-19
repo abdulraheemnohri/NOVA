@@ -176,7 +176,7 @@ def test_discover_local_models_auto_registers_known_artifacts_and_is_idempotent(
     artifact = model_root / "test-model.litertlm"
     artifact.write_bytes(b"tiny fake model fixture")
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(settings, "huggingface_cache_dir", model_root / "huggingface")
+    monkeypatch.setattr(settings, "huggingface_cache_dir", model_root)
     with _client(monkeypatch, tmp_path) as client:
         first = client.post("/api/models/discover")
         assert first.status_code == 200, first.text
