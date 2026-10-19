@@ -15,6 +15,7 @@ export default function RuntimeManagerPage(){
  const load=useCallback(async()=>{setBusy(true);setError("");try{const [r,p]=await Promise.all([fetch(API+"/runtimes",{headers:{Authorization:"Bearer "+token()}}),fetch(API+"/runtimes/preflight",{headers:{Authorization:"Bearer "+token()}})]);const d=await r.json().catch(()=>({}));const pd=await p.json().catch(()=>({}));if(!r.ok)throw Error(d.detail||"Could not inspect runtimes");if(!p.ok)throw Error(pd.detail||"Could not inspect runtime preflight");setInventory(d);setPreflight(pd);setLastCheckedAt(new Date().toISOString())}catch(e){setError(e instanceof Error?e.message:"Runtime inventory unavailable")}finally{setBusy(false)}},[]);
  const loadInstallRequests=useCallback(async()=>{try{const r=await fetch(API+"/runtimes/operations/requests",{headers:{Authorization:"Bearer "+token()}});const d=await r.json().catch(()=>({}));if(r.ok)setInstallRequests(d.requests||[])}catch{/* keep the main runtime inventory usable if the ledger is unavailable */}},[]);
  useEffect(()=>{void load()},[load]);
+ useEffect(()=>{const timer=window.setInterval(()=>{void load()},15000);return ()=>window.clearInterval(timer)},[load]);
  useEffect(()=>{void loadInstallRequests()},[loadInstallRequests]);
  const loadLitertStartup=useCallback(async()=>{try{const r=await fetch(API+"/runtimes/litert/autostart",{headers:{Authorization:"Bearer "+token()}});const d=await r.json().catch(()=>({}));if(r.ok)setLitertStartup(d)}catch{/* optional systemd capability */}},[]);
  useEffect(()=>{void loadLitertStartup()},[loadLitertStartup]);
