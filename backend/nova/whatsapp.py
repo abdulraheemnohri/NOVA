@@ -263,7 +263,7 @@ class WhatsAppAgentPlatform:
             raise
 
     async def configure(self, data: dict[str, Any]) -> dict[str, Any]:
-        allowed = {"enabled", "api_key", "clear_key"}
+        allowed = {"enabled", "api_key", "clear_key", "creator_id"}
         unknown = sorted(set(data) - allowed)
         if unknown:
             raise ValueError("Unknown WhatsApp setting(s): " + ", ".join(unknown[:8]))
@@ -273,6 +273,10 @@ class WhatsAppAgentPlatform:
         key = data.get("api_key", "")
         if not isinstance(key, str) or len(key) > 4096:
             raise ValueError("api_key must be text up to 4096 characters.")
+        creator_id = data.get("creator_id", self._state.get("creator_id", ""))
+        if not isinstance(creator_id, str) or len(creator_id) > 128 or any(ch.isspace() for ch in creator_id.strip()):
+            raise ValueError("creator_id must be a WhatsApp user ID of at most 128 characters without whitespace.")
+        creator_id = creator_id.strip()
         clear_key = data.get("clear_key", False)
         if type(clear_key) is not bool:
             raise ValueError("clear_key must be a boolean.")
@@ -285,6 +289,8 @@ class WhatsAppAgentPlatform:
             self._state["creator_id"] = ""
             self._state["next_offset"] = None
             self._state["seen_ids"] = []
+        if "creator_id" in data:
+            self._state["creator_id"] = creator_id
         if clear_key:
             self._state["api_key"] = ""
             self._state["creator_id"] = ""
@@ -293,6 +299,8 @@ class WhatsAppAgentPlatform:
             enabled = False
         if enabled and not self._state.get("api_key"):
             raise ValueError("An Agent API key is required before enabling the integration.")
+        if enabled and not self._state.get("creator_id"):
+            raise ValueError("Set the allowed creator WhatsApp user ID before enabling; inbound senders are never trusted automatically.")
         self._state["enabled"] = enabled
         self._state["connected"] = False
         self._state["last_error"] = ""
@@ -327,6 +335,17 @@ class WhatsAppAgentPlatform:
                 continue
             if message_id in seen:
                 continue
+            creator = self._state.get("creator_id")
+            # Never auto-trust the first inbound sender; the operator must pin the ID.
+            if not creator or creator != sender:
+                seen.add(message_id)
+                seen_list.append(message_id)
+                self._state["seen_ids"] = seen_list[-SEEN_LIMIT:]
+                self._state["next_offset"] = previous_offset
+                if not creator:
+                    self._state["last_error"] = "Set the allowed creator WhatsApp user ID in NOVA settings; inbound messages are ignored until then."
+                self._save()
+                continue
             if not await self._mark_read(message_id):
                 seen.add(message_id)
                 seen_list.append(message_id)
@@ -334,15 +353,6 @@ class WhatsAppAgentPlatform:
                 self._state["next_offset"] = previous_offset
                 self._save()
                 continue
-            creator = self._state.get("creator_id")
-            if creator and creator != sender:
-                seen.add(message_id)
-                seen_list.append(message_id)
-                self._state["seen_ids"] = seen_list[-SEEN_LIMIT:]
-                self._state["next_offset"] = previous_offset
-                self._save()
-                continue
-            self._state["creator_id"] = sender
             if message.get("type") != "text":
                 answer = "This NOVA WhatsApp integration currently supports text messages only. Media is not enabled."
             else:
@@ -441,6 +451,7 @@ class WhatsAppConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool | None = None
     api_key: str = Field(default="", max_length=4096)
+    creator_id: str | None = Field(default=None, max_length=128)
     clear_key: bool = False
 
 
