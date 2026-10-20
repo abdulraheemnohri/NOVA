@@ -12,7 +12,7 @@ def test_direct_search_url_encodes_query():
     parsed = urlparse(url)
     assert parsed.scheme == "https"
     assert parsed.netloc == "duckduckgo.com"
-    assert parsed.path == "/search"
+    assert parsed.path == "/"
     assert parse_qs(parsed.query)["q"] == ["NOVA + Gemma"]
 
 
@@ -59,7 +59,7 @@ def test_search_falls_back_to_direct_link_when_offline(monkeypatch):
     result = ddg.duckduckgo_search("offline")
     assert result["status"] == "unavailable"
     assert result["results"] == []
-    assert result["search_url"].startswith("https://duckduckgo.com/search?")
+    assert result["search_url"].startswith("https://duckduckgo.com/?")
 
 
 @pytest.mark.parametrize("query", ["", " "])
