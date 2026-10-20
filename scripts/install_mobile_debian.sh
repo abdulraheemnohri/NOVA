@@ -94,7 +94,7 @@ if [[ "$WITH_PIPER" == 1 ]]; then
   .venv/bin/python scripts/install_optional_runtimes.py --piper
 fi
 if [[ "$WITH_WHISPER" == 1 ]]; then
-  .venv/bin/python scripts/install_optional_runtimes.py --whisper-cpp --whisper-tag v1.7.6
+  .venv/bin/python scripts/install_optional_runtimes.py --whisper-cpp --whisper-tag v1.7.6 --jobs 1
 fi
 if [[ "$WITH_ONNX" == 1 ]]; then
   .venv/bin/python -m pip install 'onnxruntime>=1.18,<2'
