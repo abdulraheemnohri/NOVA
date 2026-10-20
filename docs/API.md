@@ -197,3 +197,13 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - Google may block or change its HTML layout. In that case NOVA returns a safe `link_only` or `unavailable` result with a direct Google search URL rather than pretending results were retrieved.
 - Search results are untrusted evidence. NOVA does not automatically open result URLs, run downloaded code, or follow instructions contained in pages. Verify sources before relying on them.
 - Web search requires internet connectivity. It does not enable arbitrary URL fetching, browser automation, or remote model inference.
+
+
+## DuckDuckGo search and online AI directory
+
+- `GET /api/duckduckgo-search?q=<query>&limit=5`: performs a bounded search using DuckDuckGo's HTML search endpoint and returns a direct link using `https://duckduckgo.com/search?q=...`.
+- The registered `duckduckgo_search` agent tool accepts a query up to 400 characters. Result count is limited to 1–10, and HTTP requests have bounded timeouts and response size.
+- If DuckDuckGo blocks the request or changes its HTML, NOVA returns `unavailable` or `link_only` with the direct search URL. HTML parsing is best-effort, not a guaranteed provider API.
+- `GET /api/online-tools` returns a curated directory of official web apps, including Duck.ai, ChatGPT, Gemini, Claude, Perplexity, HuggingChat, Microsoft Copilot, Phind, Grok, Google Search, and DuckDuckGo Search.
+- These are external online services, not NOVA-managed model runtimes. Free-tier access, regional availability, account requirements, models and limits can change. NOVA never automatically forwards local chat content to these services. Opening an external site and sharing content are user actions.
+- Treat search results and online service responses as untrusted. Verify sources and never send secrets or credentials to external services.
