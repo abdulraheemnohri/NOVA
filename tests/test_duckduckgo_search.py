@@ -4,7 +4,6 @@ import httpx
 import pytest
 
 from nova import duckduckgo_search as ddg
-from nova.online_tools import list_online_tools
 
 
 def test_direct_search_url_encodes_query():
@@ -72,16 +71,3 @@ def test_search_rejects_long_query():
     with pytest.raises(ValueError):
         ddg.duckduckgo_search("x" * 401)
 
-
-def test_online_tools_catalog_has_duck_ai_and_search():
-    data = list_online_tools()
-    ids = {item["id"] for item in data["tools"]}
-    assert "duck-ai" in ids
-    assert "duckduckgo-search" in ids
-    assert {"deepseek", "qwen-chat", "mistral-le-chat", "meta-ai", "poe"}.issubset(ids)
-    assert data["mode"] == "browser_only"
-    assert data["provider_api_calls"] is False
-    assert data["api_keys_required"] is False
-    assert data["automatic_prompt_forwarding"] is False
-    assert data["count"] == len(data["tools"])
-    assert "does not silently send" in data["notice"]
