@@ -30,6 +30,24 @@ SEEN_LIMIT = 500
 DEFAULT_MODEL_ID = "gemma-4-e4b"
 
 
+def _split_text(text: str, max_units: int = MAX_TEXT_LENGTH) -> list[str]:
+    """Split text by UTF-16 code units, the limit used by WhatsApp's API."""
+    chunks: list[str] = []
+    current: list[str] = []
+    units = 0
+    for character in text:
+        width = len(character.encode("utf-16-le")) // 2
+        if current and units + width > max_units:
+            chunks.append("".join(current))
+            current = []
+            units = 0
+        current.append(character)
+        units += width
+    if current:
+        chunks.append("".join(current))
+    return chunks
+
+
 async def _gemma_reply(message: str) -> str:
     """Run inference against Gemma 4-E4B only; never silently fall back."""
     model_id = os.environ.get("NOVA_WHATSAPP_AGENT_MODEL_ID", DEFAULT_MODEL_ID).strip()
@@ -223,8 +241,7 @@ class WhatsAppAgentPlatform:
         if not text:
             return ""
         sent_ids: list[str] = []
-        while text:
-            chunk, text = text[:MAX_TEXT_LENGTH], text[MAX_TEXT_LENGTH:]
+        for chunk in _split_text(text):
             payload: dict[str, Any] = {
                 "messaging_product": "whatsapp", "to": recipient,
                 "type": "text", "text": {"body": chunk},
