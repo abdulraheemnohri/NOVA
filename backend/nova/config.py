@@ -8,7 +8,6 @@ class Settings(BaseSettings):
     workspace: Path = Path("./data/workspace")
     database_path: Path = Path("./data/nova.sqlite3")
     audit_path: Path = Path("./data/audit.jsonl")
-    api_token_file: Path = Path("./data/api.token")
     litert_base_url: str = "http://127.0.0.1:9379/v1"
     litert_model: str = "local-model"
     # Exact server argv, configured by the operator in .env; wrapper never invokes a shell.
