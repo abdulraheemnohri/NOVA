@@ -5,7 +5,7 @@ import os
 import httpx
 import pytest
 
-from nova.whatsapp import API_BASE, WhatsAppAgentPlatform
+from nova.whatsapp import API_BASE, WhatsAppAgentPlatform, _split_text
 
 
 def test_status_never_exposes_api_key(tmp_path):
@@ -148,3 +148,17 @@ def test_failed_key_rotation_does_not_partially_mutate_config(tmp_path):
     assert service._state["creator_id"] == "creator-123"
     assert service._state["next_offset"] == 17
     assert service._state["enabled"] is False
+
+
+def test_reply_chunks_respect_utf16_limit():
+    text = "🙂" * 2001
+    chunks = _split_text(text)
+    assert [len(chunk.encode("utf-16-le")) // 2 for chunk in chunks] == [4000, 2]
+    assert "".join(chunks) == text
+
+
+def test_reply_chunks_preserve_ascii_and_boundaries():
+    text = "a" * 4001
+    chunks = _split_text(text)
+    assert [len(chunk) for chunk in chunks] == [4000, 1]
+    assert "".join(chunks) == text
