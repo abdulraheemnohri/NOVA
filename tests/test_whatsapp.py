@@ -130,3 +130,21 @@ def test_unallowlisted_sender_is_never_auto_trusted_or_replied_to(tmp_path):
     assert service._state["creator_id"] == "creator-123"
     assert replies == []
     assert "msg-1" in service._state["seen_ids"]
+
+
+def test_failed_key_rotation_does_not_partially_mutate_config(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    asyncio.run(service.configure({
+        "api_key": "old-key",
+        "creator_id": "creator-123",
+        "enabled": False,
+    }))
+    service._state["next_offset"] = 17
+
+    with pytest.raises(ValueError, match="creator WhatsApp user ID"):
+        asyncio.run(service.configure({"api_key": "new-key", "enabled": True}))
+
+    assert service._state["api_key"] == "old-key"
+    assert service._state["creator_id"] == "creator-123"
+    assert service._state["next_offset"] == 17
+    assert service._state["enabled"] is False
