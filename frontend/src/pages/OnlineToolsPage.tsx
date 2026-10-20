@@ -13,6 +13,11 @@ const ONLINE_TOOLS:OnlineTool[]=[
  {id:"copilot",name:"Microsoft Copilot",category:"AI chat",url:"https://copilot.microsoft.com/",access:"Free tier",account:"Sign-in may be required for some features",privacy:"External service governed by Microsoft's terms.",notes:"General AI assistance; features and limits can change."},
  {id:"phind",name:"Phind",category:"Coding AI",url:"https://www.phind.com/",access:"Free access may be available",account:"May require an account",privacy:"External service; review current terms.",notes:"Coding-focused AI research and assistance; availability may change."},
  {id:"grok",name:"Grok",category:"AI chat",url:"https://grok.com/",access:"Free access may be available",account:"Account typically required",privacy:"External service; review current terms.",notes:"Additional online AI assistant; availability and limits can change."}
+ ,{id:"deepseek",name:"DeepSeek",category:"AI chat",url:"https://chat.deepseek.com/",access:"Free access may be available",account:"Account may be required",privacy:"External service; review current privacy terms.",notes:"General-purpose AI chat; access and limits can change."}
+ ,{id:"qwen-chat",name:"Qwen Chat",category:"Open models",url:"https://chat.qwen.ai/",access:"Free access may be available",account:"Account may be required for some features",privacy:"Hosted service; review current terms.",notes:"Online chat using Qwen models; availability may vary."}
+ ,{id:"mistral-le-chat",name:"Mistral Le Chat",category:"AI chat",url:"https://chat.mistral.ai/",access:"Free tier may be available",account:"Account may be required",privacy:"External service; review current data controls.",notes:"General AI assistant with free and paid features."}
+ ,{id:"meta-ai",name:"Meta AI",category:"AI chat",url:"https://www.meta.ai/",access:"Free access may be available",account:"Availability and sign-in vary by region",privacy:"External service governed by Meta terms.",notes:"AI assistant availability depends on country and account."}
+ ,{id:"poe",name:"Poe",category:"Multi-model chat",url:"https://poe.com/",access:"Free tier with limits",account:"Account typically required",privacy:"External service; review current terms.",notes:"Access to multiple bots/models; free message limits apply."}
 ];
 
 export default function OnlineToolsPage(){
