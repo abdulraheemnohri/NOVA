@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
+from nova.config import settings
+
 RUNTIME_EXECUTABLES: dict[str, frozenset[str]] = {
     "whisper-cpp": frozenset({"whisper-cli"}),
     "piper-tts": frozenset({"piper"}),
@@ -37,7 +39,7 @@ def _now() -> str:
 
 
 def _profile() -> str:
-    value = os.environ.get("NOVA_RUNTIME_PROFILE", "balanced").strip().lower()
+    value = os.environ.get("NOVA_RUNTIME_PROFILE", settings.runtime_profile).strip().lower()
     return value if value in _PROFILE_LIMITS else "balanced"
 
 
@@ -73,6 +75,7 @@ def run_task_command(
     if not acquired:
         raise TimeoutError("NOVA runtime concurrency limit reached; retry after another task finishes.")
 
+    started_clock = time.monotonic()
     started = _now()
     with _LOCK:
         _ACTIVE[runtime_id] += 1
@@ -95,7 +98,7 @@ def run_task_command(
                 "event": "stopped" if exit_code == 0 else "failed_or_timed_out",
                 "at": finished,
                 "exit_code": exit_code,
-                "duration_seconds": None,
+                "duration_seconds": round(time.monotonic() - started_clock, 3),
             })
         semaphore.release()
 
