@@ -188,3 +188,12 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - When enabled, the model can request an installation for supported optional runtimes; this only creates a pending request from a fixed allowlist. A human must approve and explicitly execute it.
 - AI runtime configuration changes are limited to the task-runtime switches `whisper_enabled`, `piper_enabled`, `ocr_enabled`, `onnx_runtime_enabled`, and `local_retrieval_enabled`. Model hub/download permissions, network policy, write approvals, authentication, project configuration, and AI capability settings remain human-only.
 - `ai_project_settings_access` is always returned as `false`; it is not accepted by the update schema. These boundaries are enforced server-side, not merely hidden in the UI.
+
+
+## Google web search
+
+- `GET /api/web-search?q=<query>&limit=5`: performs a bounded Google search using the mobile Google search URL parameters requested for NOVA. Query length is limited to 400 characters and result count to 1–10.
+- The registered `web_search` agent tool accepts exactly `{"query":"..." }` and returns result titles, external URLs, and the Google search URL.
+- Google may block or change its HTML layout. In that case NOVA returns a safe `link_only` or `unavailable` result with a direct Google search URL rather than pretending results were retrieved.
+- Search results are untrusted evidence. NOVA does not automatically open result URLs, run downloaded code, or follow instructions contained in pages. Verify sources before relying on them.
+- Web search requires internet connectivity. It does not enable arbitrary URL fetching, browser automation, or remote model inference.

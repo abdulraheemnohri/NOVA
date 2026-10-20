@@ -5,6 +5,7 @@ from nova.audit import append_audit
 from nova.config import settings
 from nova.policy import evaluate_tool
 from nova.knowledge import SearchRequest,search_knowledge
+from nova.web_search import google_search
 router=APIRouter(prefix="/api/agent/tools",tags=["agent tools"])
 class Call(BaseModel):
  model_config=ConfigDict(extra="forbid")
@@ -15,6 +16,7 @@ class Call(BaseModel):
 _TOOL_INPUT_LIMITS = {
  "calculator": {"expression": 256},
  "knowledge_search": {"query": 1000},
+ "web_search": {"query": 400},
  "text_stats": {"text": 10000},
  "json_format": {"json": 100000},
  "base64_encode": {"text": 100000},
@@ -61,7 +63,7 @@ def calculator(s):
   raise ValueError("Only numeric arithmetic is allowed.")
  return ev(t)
 @router.get("")
-def catalog():return {"tools":[{"name":"calculator","input_schema":{"expression":"string"}},{"name":"knowledge_search","input_schema":{"query":"string"}},{"name":"text_stats","input_schema":{"text":"string"}},{"name":"json_format","input_schema":{"json":"string"}},{"name":"base64_encode","input_schema":{"text":"string"}},{"name":"base64_decode","input_schema":{"encoded":"string"}},{"name":"csv_summary","input_schema":{"csv":"string"}},{"name":"markdown_outline","input_schema":{"markdown":"string"}}],"shell":False,"network":False,"writes":False}
+def catalog():return {"tools":[{"name":"calculator","input_schema":{"expression":"string"}},{"name":"knowledge_search","input_schema":{"query":"string"}},{"name":"web_search","input_schema":{"query":"string"}},{"name":"text_stats","input_schema":{"text":"string"}},{"name":"json_format","input_schema":{"json":"string"}},{"name":"base64_encode","input_schema":{"text":"string"}},{"name":"base64_decode","input_schema":{"encoded":"string"}},{"name":"csv_summary","input_schema":{"csv":"string"}},{"name":"markdown_outline","input_schema":{"markdown":"string"}}],"shell":False,"network":True,"writes":False}
 @router.post("/execute")
 def execute(req:Call):
  d=evaluate_tool(req.name)
@@ -132,6 +134,10 @@ def execute(req:Call):
    q=req.input.get("query")
    if not isinstance(q,str) or not q.strip() or len(q)>1000:raise ValueError("Invalid query.")
    r=search_knowledge(SearchRequest(query=q,limit=5))
+  elif req.name=="web_search":
+   q=req.input.get("query")
+   if not isinstance(q,str) or not q.strip() or len(q)>400:raise ValueError("Search query must be 1-400 characters.")
+   r=google_search(q, limit=5)
   else:raise ValueError("Unknown tool; default deny.")
  except (ValueError,SyntaxError,ZeroDivisionError,OverflowError) as e:
   append_audit(settings.audit_path,"agent.tool.failed",{"tool":req.name});raise HTTPException(422,str(e)) from e

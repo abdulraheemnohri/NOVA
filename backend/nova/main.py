@@ -21,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from nova.audit import append_audit, verify_audit
 from nova.config import settings
 from nova.knowledge import SearchRequest, initialize_knowledge, router as knowledge_router, search_knowledge
+from nova.web_search import router as web_search_router
 from nova.litert import LiteRTError, chat, health
 from nova.model_manager import active_model_id, _model_enabled, router as model_router
 from nova.huggingface import router as huggingface_router
@@ -143,6 +144,7 @@ async def apply_api_security_controls(request: Request, call_next):
 
 
 app.include_router(knowledge_router)
+app.include_router(web_search_router)
 app.include_router(model_router)
 app.include_router(huggingface_router)
 app.include_router(tasks_router)
