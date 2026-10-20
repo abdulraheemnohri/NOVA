@@ -54,7 +54,7 @@ jobs:
       - name: Run backend tests
         run: |
           mkdir -p test-results
-          python -m pytest -q --junitxml=test-results/backend.xml
+          python -m pytest -q --timeout=120 --junitxml=test-results/backend.xml
 
       - name: Upload backend test report
         if: always()
