@@ -105,3 +105,28 @@ def test_creator_id_is_saved_and_validated(tmp_path):
     assert status["creator_id"] == "creator-123"
     with pytest.raises(ValueError):
         asyncio.run(service.configure({"creator_id": "bad id"}))
+
+
+def test_unallowlisted_sender_is_never_auto_trusted_or_replied_to(tmp_path):
+    replies = []
+
+    async def reply(message: str) -> str:
+        replies.append(message)
+        return "reply"
+
+    service = WhatsAppAgentPlatform(tmp_path, reply)
+    asyncio.run(service.configure({"api_key": "test-key", "creator_id": "creator-123"}))
+    payload = {
+        "object": "whatsapp_agent_platform",
+        "next_offset": 2,
+        "entry": [{
+            "changes": [{
+                "field": "messages",
+                "value": {"messages": [{"id": "msg-1", "from": "attacker-999", "type": "text", "text": {"body": "hello"}}]},
+            }],
+        }],
+    }
+    asyncio.run(service._process_payload(payload, previous_offset=None))
+    assert service._state["creator_id"] == "creator-123"
+    assert replies == []
+    assert "msg-1" in service._state["seen_ids"]
