@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter(prefix="/api/duckduckgo-search", tags=["web search"])
-SEARCH_URL = "https://duckduckgo.com/search"
+SEARCH_URL = "https://duckduckgo.com/"
 HTML_URL = "https://html.duckduckgo.com/html/"
 MAX_QUERY_LENGTH = 400
 MAX_RESPONSE_BYTES = 1_000_000
