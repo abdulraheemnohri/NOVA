@@ -1,40 +1,164 @@
-from nova.whatsapp import endpoint,NOTICE
-def test_endpoint_requires_https_and_blocks_private_hosts():
- assert endpoint("https://agent.example.com/api").scheme=="https"
- for u in ["http://agent.example.com","https://localhost/api","https://127.0.0.1/api","https://user:pass@agent.example.com"]:
-  try:endpoint(u)
-  except ValueError:pass
-  else:raise AssertionError("unsafe endpoint accepted")
-def test_notice_discloses_non_end_to_end_encryption():
- assert "not consider these chats end-to-end encrypted" in NOTICE
+import asyncio
+import json
+import os
 
-def test_webhook_body_reader_accepts_payload_within_limit():
- import asyncio
- from starlette.requests import Request
- from nova.whatsapp import read_webhook_body
+import httpx
+import pytest
 
- chunks = [b'{"object":', b'"whatsapp_business_account"}']
- async def receive():
-  if chunks:
-   return {"type": "http.request", "body": chunks.pop(0), "more_body": bool(chunks)}
-  return {"type": "http.disconnect"}
- request = Request({"type": "http", "method": "POST", "path": "/api/whatsapp/webhook", "headers": []}, receive)
- assert asyncio.run(read_webhook_body(request, max_bytes=100)) == b'{"object":"whatsapp_business_account"}'
+from nova.whatsapp import API_BASE, WhatsAppAgentPlatform, _split_text
 
 
-def test_webhook_body_reader_rejects_oversized_payload():
- import asyncio
- import pytest
- from fastapi import HTTPException
- from starlette.requests import Request
- from nova.whatsapp import read_webhook_body
+def test_status_never_exposes_api_key(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    asyncio.run(service.configure({"api_key": "secret-test-key", "enabled": False}))
+    status = service.status()
+    assert status["configured"] is True
+    assert "secret-test-key" not in json.dumps(status)
+    assert status["mode"] == "text-only"
+    assert status["model_name"] == "Gemma 4-E4B (LiteRT-LM only)"
 
- chunks = [b"12345", b"67890"]
- async def receive():
-  if chunks:
-   return {"type": "http.request", "body": chunks.pop(0), "more_body": bool(chunks)}
-  return {"type": "http.disconnect"}
- request = Request({"type": "http", "method": "POST", "path": "/api/whatsapp/webhook", "headers": []}, receive)
- with pytest.raises(HTTPException) as exc:
-  asyncio.run(read_webhook_body(request, max_bytes=8))
- assert exc.value.status_code == 413
+
+def test_config_rejects_unknown_fields_and_invalid_types(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    with pytest.raises(ValueError):
+        asyncio.run(service.configure({"unexpected": True}))
+    with pytest.raises(ValueError):
+        asyncio.run(service.configure({"enabled": "yes"}))
+
+
+def test_config_requires_key_before_enable(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    with pytest.raises(ValueError):
+        asyncio.run(service.configure({"enabled": True}))
+
+
+def test_secret_file_has_restrictive_permissions(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    asyncio.run(service.configure({"api_key": "secret-test-key"}))
+    path = tmp_path / "whatsapp_agent_platform.json"
+    assert path.exists()
+    assert os.stat(path).st_mode & 0o077 == 0
+    assert os.stat(tmp_path).st_mode & 0o077 == 0
+
+
+def test_test_connection_does_not_advance_offset(tmp_path):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "object": "whatsapp_agent_platform", "next_offset": 22,
+            "entry": [{"changes": [{"field": "messages", "value": {"messages": []}}]}],
+        })
+    service = WhatsAppAgentPlatform(
+        tmp_path, _reply, base_url=API_BASE, transport=httpx.MockTransport(handler)
+    )
+    asyncio.run(service.configure({"api_key": "test-key"}))
+    service._state["next_offset"] = 7
+    result = asyncio.run(service.test_connection())
+    assert result["ok"] is True
+    assert service._state["next_offset"] == 7
+
+
+def test_api_key_rejection_does_not_leak_response_body(tmp_path):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text="secret body")
+    service = WhatsAppAgentPlatform(
+        tmp_path, _reply, transport=httpx.MockTransport(handler)
+    )
+    asyncio.run(service.configure({"api_key": "test-key"}))
+    with pytest.raises(PermissionError) as exc:
+        asyncio.run(service._get_updates(timeout=0))
+    assert "secret body" not in str(exc.value)
+
+
+def test_message_extractor_ignores_malformed_entries():
+    payload = {"entry": [None, {"changes": [{"field": "other"}, {
+        "field": "messages", "value": {"messages": [{"id": "1"}, None]}
+    }]}]}
+    assert WhatsAppAgentPlatform._messages(payload) == [{"id": "1"}]
+
+
+def test_manual_send_requires_verified_creator(tmp_path):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(204)
+
+    service = WhatsAppAgentPlatform(
+        tmp_path, _reply, transport=httpx.MockTransport(handler)
+    )
+    asyncio.run(service.configure({"api_key": "test-key", "creator_id": "creator-123", "enabled": True}))
+    with pytest.raises(PermissionError):
+        asyncio.run(service.send_manual({"recipient": "other-user", "message": "hello"}))
+    asyncio.run(service.stop())
+
+
+async def _reply(message: str) -> str:
+    return "reply:" + message
+
+
+def test_enabled_requires_explicit_creator_allowlist(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    with pytest.raises(ValueError, match="creator WhatsApp user ID"):
+        asyncio.run(service.configure({"api_key": "test-key", "enabled": True}))
+
+
+def test_creator_id_is_saved_and_validated(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    status = asyncio.run(service.configure({"api_key": "test-key", "creator_id": "creator-123"}))
+    assert status["creator_id"] == "creator-123"
+    with pytest.raises(ValueError):
+        asyncio.run(service.configure({"creator_id": "bad id"}))
+
+
+def test_unallowlisted_sender_is_never_auto_trusted_or_replied_to(tmp_path):
+    replies = []
+
+    async def reply(message: str) -> str:
+        replies.append(message)
+        return "reply"
+
+    service = WhatsAppAgentPlatform(tmp_path, reply)
+    asyncio.run(service.configure({"api_key": "test-key", "creator_id": "creator-123"}))
+    payload = {
+        "object": "whatsapp_agent_platform",
+        "next_offset": 2,
+        "entry": [{
+            "changes": [{
+                "field": "messages",
+                "value": {"messages": [{"id": "msg-1", "from": "attacker-999", "type": "text", "text": {"body": "hello"}}]},
+            }],
+        }],
+    }
+    asyncio.run(service._process_payload(payload, previous_offset=None))
+    assert service._state["creator_id"] == "creator-123"
+    assert replies == []
+    assert "msg-1" in service._state["seen_ids"]
+
+
+def test_failed_key_rotation_does_not_partially_mutate_config(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    asyncio.run(service.configure({
+        "api_key": "old-key",
+        "creator_id": "creator-123",
+        "enabled": False,
+    }))
+    service._state["next_offset"] = 17
+
+    with pytest.raises(ValueError, match="creator WhatsApp user ID"):
+        asyncio.run(service.configure({"api_key": "new-key", "enabled": True}))
+
+    assert service._state["api_key"] == "old-key"
+    assert service._state["creator_id"] == "creator-123"
+    assert service._state["next_offset"] == 17
+    assert service._state["enabled"] is False
+
+
+def test_reply_chunks_respect_utf16_limit():
+    text = "🙂" * 2001
+    chunks = _split_text(text)
+    assert [len(chunk.encode("utf-16-le")) // 2 for chunk in chunks] == [4000, 2]
+    assert "".join(chunks) == text
+
+
+def test_reply_chunks_preserve_ascii_and_boundaries():
+    text = "a" * 4001
+    chunks = _split_text(text)
+    assert [len(chunk) for chunk in chunks] == [4000, 1]
+    assert "".join(chunks) == text
