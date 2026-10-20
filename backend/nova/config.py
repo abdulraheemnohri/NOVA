@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     audit_path: Path = Path("./data/audit.jsonl")
     api_token_file: Path = Path("./data/api.token")
     litert_base_url: str = "http://127.0.0.1:9379/v1"
+    # Limits concurrent task-scoped runtimes on constrained devices: mobile=1, balanced=2, performance=3.
+    runtime_profile: str = "balanced"
     litert_model: str = "local-model"
     # Exact server argv, configured by the operator in .env; wrapper never invokes a shell.
     litert_lm_command: str = ""
