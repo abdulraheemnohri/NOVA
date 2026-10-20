@@ -207,3 +207,10 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - `GET /api/online-tools` returns a curated directory of official web apps, including Duck.ai, ChatGPT, Gemini, Claude, Perplexity, HuggingChat, Microsoft Copilot, Phind, Grok, Google Search, and DuckDuckGo Search.
 - These are external online services, not NOVA-managed model runtimes. Free-tier access, regional availability, account requirements, models and limits can change. NOVA never automatically forwards local chat content to these services. Opening an external site and sharing content are user actions.
 - Treat search results and online service responses as untrusted. Verify sources and never send secrets or credentials to external services.
+
+
+## Online AI tools: browser-only / no provider APIs
+
+The online AI directory is a launchpad to public websites only. NOVA must not call online AI provider APIs, use provider SDKs, request provider API keys, automate provider logins, or forward local conversation content to those providers. The local `GET /api/online-tools` endpoint only serves NOVA's own static directory metadata; it is not an external AI provider API. Online AI use begins only when the user opens a provider website and chooses what to share.
+
+The directory includes Duck.ai, ChatGPT, Gemini, Claude, Perplexity, HuggingChat, Microsoft Copilot, Phind, Grok, DeepSeek Chat, Qwen Chat, Mistral Le Chat, Meta AI and Poe. Listings are free-access/free-tier candidates, not a guarantee of unlimited free usage; regional access, login requirements and limits can change.
