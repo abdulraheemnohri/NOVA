@@ -211,6 +211,6 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 
 ## Online AI tools: browser-only / no provider APIs
 
-The online AI directory is a launchpad to public websites only. NOVA must not call online AI provider APIs, use provider SDKs, request provider API keys, automate provider logins, or forward local conversation content to those providers. The local `GET /api/online-tools` endpoint only serves NOVA's own static directory metadata; it is not an external AI provider API. Online AI use begins only when the user opens a provider website and chooses what to share.
+The online AI directory is a launchpad to public websites only. NOVA must not call online AI provider APIs, use provider SDKs, request provider API keys, automate provider logins, or forward local conversation content to those providers. The frontend directory is a static list and does not call a directory API. Online AI use begins only when the user opens a provider website and chooses what to share.
 
 The directory includes Duck.ai, ChatGPT, Gemini, Claude, Perplexity, HuggingChat, Microsoft Copilot, Phind, Grok, DeepSeek Chat, Qwen Chat, Mistral Le Chat, Meta AI and Poe. Listings are free-access/free-tier candidates, not a guarantee of unlimited free usage; regional access, login requirements and limits can change.
