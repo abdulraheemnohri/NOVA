@@ -83,7 +83,7 @@ def test_manual_send_requires_verified_creator(tmp_path):
     service = WhatsAppAgentPlatform(
         tmp_path, _reply, transport=httpx.MockTransport(handler)
     )
-    asyncio.run(service.configure({"api_key": "test-key", "enabled": True}))
+    asyncio.run(service.configure({"api_key": "test-key", "creator_id": "creator-123", "enabled": True}))
     with pytest.raises(PermissionError):
         asyncio.run(service.send_manual({"recipient": "other-user", "message": "hello"}))
     asyncio.run(service.stop())
@@ -91,3 +91,17 @@ def test_manual_send_requires_verified_creator(tmp_path):
 
 async def _reply(message: str) -> str:
     return "reply:" + message
+
+
+def test_enabled_requires_explicit_creator_allowlist(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    with pytest.raises(ValueError, match="creator WhatsApp user ID"):
+        asyncio.run(service.configure({"api_key": "test-key", "enabled": True}))
+
+
+def test_creator_id_is_saved_and_validated(tmp_path):
+    service = WhatsAppAgentPlatform(tmp_path, _reply)
+    status = asyncio.run(service.configure({"api_key": "test-key", "creator_id": "creator-123"}))
+    assert status["creator_id"] == "creator-123"
+    with pytest.raises(ValueError):
+        asyncio.run(service.configure({"creator_id": "bad id"}))
