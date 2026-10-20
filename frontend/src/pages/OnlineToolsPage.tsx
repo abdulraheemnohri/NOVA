@@ -5,6 +5,8 @@ import {PageHeader} from "../components/ui";
 type OnlineTool={id:string;name:string;category:string;url:string;access:string;account:string;privacy:string;notes:string};
 type SearchResult={title:string;url:string};
 type SearchResponse={query:string;search_url:string;results:SearchResult[];status:string;message?:string;note?:string};
+const API_BASE="http://127.0.0.1:8000/api";
+
 type Props={apiFetch:(url:string,init?:RequestInit)=>Promise<Response>;onError:(message:string)=>void};
 
 export default function OnlineToolsPage({apiFetch,onError}:Props){
@@ -14,8 +16,8 @@ export default function OnlineToolsPage({apiFetch,onError}:Props){
  const [results,setResults]=useState<SearchResponse|null>(null);
  const [busy,setBusy]=useState(false);
  const [loading,setLoading]=useState(true);
- useEffect(()=>{let alive=true;void apiFetch("/api/online-tools").then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.detail||"Could not load online tool directory");if(alive)setTools(d.tools||[])}).catch(e=>{if(alive)onError(e instanceof Error?e.message:"Could not load online tool directory")}).finally(()=>{if(alive)setLoading(false)});return()=>{alive=false}},[]);
- async function search(e:FormEvent){e.preventDefault();if(!query.trim())return;setBusy(true);setResults(null);try{const path=provider==="duckduckgo"?"/api/duckduckgo-search":"/api/web-search";const r=await apiFetch(path+"?q="+encodeURIComponent(query.trim())+"&limit=5");const d=await r.json();if(!r.ok)throw Error(d.detail||"Web search failed");setResults(d)}catch(e){onError(e instanceof Error?e.message:"Web search failed")}finally{setBusy(false)}}
+ useEffect(()=>{let alive=true;void apiFetch(API_BASE+"/online-tools").then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.detail||"Could not load online tool directory");if(alive)setTools(d.tools||[])}).catch(e=>{if(alive)onError(e instanceof Error?e.message:"Could not load online tool directory")}).finally(()=>{if(alive)setLoading(false)});return()=>{alive=false}},[]);
+ async function search(e:FormEvent){e.preventDefault();if(!query.trim())return;setBusy(true);setResults(null);try{const path=provider==="duckduckgo"?"/duckduckgo-search":"/web-search";const r=await apiFetch(API_BASE+path+"?q="+encodeURIComponent(query.trim())+"&limit=5");const d=await r.json();if(!r.ok)throw Error(d.detail||"Web search failed");setResults(d)}catch(e){onError(e instanceof Error?e.message:"Web search failed")}finally{setBusy(false)}}
  const aiTools=tools.filter(t=>t.category!=="Web search");
  return <section className="space-y-4">
   <div className="panel p-5"><PageHeader title="Online AI & Web Search" description="Optional online services. Local NOVA chat remains local unless you explicitly open an external service and share content there."/>
