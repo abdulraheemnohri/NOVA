@@ -537,7 +537,7 @@ def api_chat(req: ChatRequest):
     # Gemma-first routing contract: use only capabilities actually verified for this
     # configured artifact and LiteRT-LM API; family-level marketing claims are not probes.
     guidance += (
-        "\\nGemma-first task policy: First determine whether the selected Gemma/LiteRT-LM "
+        "\nGemma-first task policy: First determine whether the selected Gemma/LiteRT-LM "
         "artifact and request format actually support the task. Prefer Gemma's verified "
         "built-in text, image, audio and function-calling abilities where available. "
         "Do not infer image/audio/native function support from the model family name alone. "
