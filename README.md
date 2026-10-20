@@ -102,5 +102,5 @@ The **Runtimes** page inventories LiteRT-LM, whisper.cpp, Piper, ONNX Runtime, T
 Read `docs/SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/OFFLINE_DEPLOYMENT.md`, and `docs/ROADMAP.md`.
 
 
-## Optional WhatsApp third-party agents
-NOVA can bridge a WhatsApp Business Cloud API webhook to up to five explicitly configured HTTPS agent endpoints. This is **not** the limited consumer WhatsApp app's agent-linking feature. See [WhatsApp bridge setup](docs/WHATSAPP_SETUP.md) for Meta credentials, sender allowlisting, webhook verification, token environment variables, and the encryption/privacy boundary. The bridge is disabled until credentials, allowed senders, and agent endpoints are configured.
+## Optional WhatsApp Agent Platform (text-only V1)
+NOVA supports Meta's WhatsApp Agent Platform at `https://api.whatsapp.com/agent/v1`, with replies generated only by the configured local LiteRT-LM model (Gemma 4-E4B by default). This is **not** WhatsApp Web QR pairing and not the WhatsApp Business Cloud API. Configure the Agent API key and exact allowed creator sender ID in the **WhatsApp Agent Platform** page. NOVA never trusts the first inbound sender automatically. The integration is opt-in, stores its key in a local owner-only state file, and has no cloud inference fallback. See [WhatsApp Agent Platform setup](docs/WHATSAPP_SETUP.md) for configuration, privacy, troubleshooting, and V1 limitations.
