@@ -263,20 +263,28 @@ class WhatsAppAgentPlatform:
             raise
 
     async def configure(self, data: dict[str, Any]) -> dict[str, Any]:
+        # Validate the complete proposed state before mutating in-memory state.
+        # Failed requests must not partially rotate credentials or stop a running worker.
         allowed = {"enabled", "api_key", "clear_key", "creator_id"}
         unknown = sorted(set(data) - allowed)
         if unknown:
             raise ValueError("Unknown WhatsApp setting(s): " + ", ".join(unknown[:8]))
+
         enabled = data.get("enabled", self._state.get("enabled", False))
         if type(enabled) is not bool:
             raise ValueError("enabled must be a boolean.")
+
         key = data.get("api_key", "")
         if not isinstance(key, str) or len(key) > 4096:
             raise ValueError("api_key must be text up to 4096 characters.")
+
         creator_id = data.get("creator_id", self._state.get("creator_id", ""))
-        if not isinstance(creator_id, str) or len(creator_id) > 128 or any(ch.isspace() for ch in creator_id.strip()):
+        if not isinstance(creator_id, str) or len(creator_id) > 128 or any(
+            ch.isspace() for ch in creator_id.strip()
+        ):
             raise ValueError("creator_id must be a WhatsApp user ID of at most 128 characters without whitespace.")
         creator_id = creator_id.strip()
+
         clear_key = data.get("clear_key", False)
         if type(clear_key) is not bool:
             raise ValueError("clear_key must be a boolean.")
@@ -284,24 +292,28 @@ class WhatsAppAgentPlatform:
             raise ValueError("clear_key cannot be combined with api_key.")
         if clear_key and data.get("enabled") is True:
             raise ValueError("clear_key cannot be combined with enabled=true.")
-        if key.strip():
-            self._state["api_key"] = key.strip()
-            self._state["creator_id"] = ""
-            self._state["next_offset"] = None
-            self._state["seen_ids"] = []
-        if "creator_id" in data:
-            self._state["creator_id"] = creator_id
+
+        new_key = "" if clear_key else (key.strip() or str(self._state.get("api_key") or ""))
+        # Rotating the API key invalidates the old creator pin until the operator
+        # explicitly supplies a new creator ID in the same request.
         if clear_key:
-            self._state["api_key"] = ""
-            self._state["creator_id"] = ""
+            new_creator_id = ""
+        elif key.strip():
+            new_creator_id = creator_id if "creator_id" in data else ""
+        else:
+            new_creator_id = creator_id
+
+        if enabled and not new_key:
+            raise ValueError("An Agent API key is required before enabling the integration.")
+        if enabled and not new_creator_id:
+            raise ValueError("Set the allowed creator WhatsApp user ID before enabling; inbound senders are never trusted automatically.")
+
+        self._state["api_key"] = new_key
+        self._state["creator_id"] = new_creator_id
+        if clear_key or key.strip():
             self._state["next_offset"] = None
             self._state["seen_ids"] = []
-            enabled = False
-        if enabled and not self._state.get("api_key"):
-            raise ValueError("An Agent API key is required before enabling the integration.")
-        if enabled and not self._state.get("creator_id"):
-            raise ValueError("Set the allowed creator WhatsApp user ID before enabling; inbound senders are never trusted automatically.")
-        self._state["enabled"] = enabled
+        self._state["enabled"] = False if clear_key else enabled
         self._state["connected"] = False
         self._state["last_error"] = ""
         self._save()
