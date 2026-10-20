@@ -204,7 +204,7 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - `GET /api/duckduckgo-search?q=<query>&limit=5`: performs a bounded search using DuckDuckGo's HTML search endpoint and returns a direct link using DuckDuckGo’s documented query URL `https://duckduckgo.com/?q=...`; the UI also includes the `https://duckduckgo.com/search` link requested by the user.
 - The registered `duckduckgo_search` agent tool accepts a query up to 400 characters. Result count is limited to 1–10, and HTTP requests have bounded timeouts and response size.
 - If DuckDuckGo blocks the request or changes its HTML, NOVA returns `unavailable` or `link_only` with the direct search URL. HTML parsing is best-effort, not a guaranteed provider API.
-- `GET /api/online-tools` returns a curated directory of official web apps, including Duck.ai, ChatGPT, Gemini, Claude, Perplexity, HuggingChat, Microsoft Copilot, Phind, Grok, Google Search, and DuckDuckGo Search.
+- The online AI directory is a static frontend list of official website links. It does not call a provider API or require API keys.
 - These are external online services, not NOVA-managed model runtimes. Free-tier access, regional availability, account requirements, models and limits can change. NOVA never automatically forwards local chat content to these services. Opening an external site and sharing content are user actions.
 - Treat search results and online service responses as untrusted. Verify sources and never send secrets or credentials to external services.
 
