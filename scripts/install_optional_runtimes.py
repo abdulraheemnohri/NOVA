@@ -26,7 +26,7 @@ def run(command: list[str], *, dry_run: bool = False, cwd: Path = ROOT) -> None:
 
 
 def install_selected(*, litert_lm: bool, piper: bool, whisper_cpp: bool,
-                     whisper_tag: str | None, dry_run: bool) -> int:
+                     whisper_tag: str | None, jobs: int, dry_run: bool) -> int:
     if not VENV_PYTHON.is_file() and not dry_run:
         print("Create NOVA's virtual environment first: python scripts/install_all.py", file=sys.stderr)
         return 2
@@ -67,7 +67,7 @@ def install_selected(*, litert_lm: bool, piper: bool, whisper_cpp: bool,
         build = WHISPER_SOURCE / "build"
         run([cmake, "-S", str(WHISPER_SOURCE), "-B", str(build), "-DCMAKE_BUILD_TYPE=Release"],
             dry_run=dry_run)
-        run([cmake, "--build", str(build), "--config", "Release", "--parallel"],
+        run([cmake, "--build", str(build), "--config", "Release", "--parallel", str(jobs)],
             dry_run=dry_run)
         print("whisper.cpp source build complete. Configure NOVA_WHISPER_CLI_PATH to the built CLI.")
         print("Download a compatible GGML model separately and configure NOVA_WHISPER_MODEL_PATH.")
@@ -90,12 +90,14 @@ def main() -> int:
     parser.add_argument("--piper", action="store_true", help="install Piper TTS into NOVA's virtual environment")
     parser.add_argument("--whisper-cpp", action="store_true", help="build whisper.cpp from its upstream Git repository")
     parser.add_argument("--whisper-tag", help="explicit upstream whisper.cpp release tag to build (required with --whisper-cpp)")
+    parser.add_argument("--jobs", type=int, default=2, choices=range(1, 9),
+                        help="maximum parallel CMake build jobs (use 1 on phones/low-RAM devices)")
     parser.add_argument("--dry-run", action="store_true", help="print commands without changing files or installing packages")
     args = parser.parse_args()
     try:
         return install_selected(litert_lm=args.litert_lm, piper=args.piper,
                                 whisper_cpp=args.whisper_cpp, whisper_tag=args.whisper_tag,
-                                dry_run=args.dry_run)
+                                jobs=args.jobs, dry_run=args.dry_run)
     except (OSError, subprocess.CalledProcessError) as exc:
         print(f"Optional runtime installation failed: {exc}", file=sys.stderr)
         return 1

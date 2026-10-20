@@ -30,6 +30,7 @@ from nova.config import settings
 from nova.litert import health as litert_health
 from nova.model_manager import active_model_id
 from nova.settings_preferences import get_feature_settings
+from nova.runtime_lifecycle import RUNTIME_EXECUTABLES, lifecycle_snapshot, run_task_command
 
 router = APIRouter(prefix="/api/runtimes", tags=["model runtimes"])
 
@@ -41,7 +42,16 @@ class SynthesisRequest(BaseModel):
 
 
 async def _run_local_command(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[Any]:
-    """Run a local runtime command off the event loop so independent jobs can overlap."""
+    """Run a task-scoped local runtime off the event loop with lifecycle accounting."""
+    command = args[0] if args else None
+    if isinstance(command, (list, tuple)) and command:
+        executable = Path(str(command[0])).name
+        runtime_id = next(
+            (name for name, executables in RUNTIME_EXECUTABLES.items() if executable in executables),
+            None,
+        )
+        if runtime_id:
+            return await asyncio.to_thread(run_task_command, runtime_id, command, **kwargs)
     return await asyncio.to_thread(subprocess.run, *args, **kwargs)
 
 
@@ -239,6 +249,7 @@ def runtime_inventory() -> dict[str, Any]:
         "primary_chat_runtime": "litert-lm",
         "automatic_fallback": False,
         "runtimes": runtimes,
+        "lifecycle": lifecycle_snapshot(),
         "notes": [
             "Detection confirms executable/package presence only; it does not prove model compatibility or accelerator support.",
             "Optional runtimes are task-scoped. NOVA never starts a server or downloads model files automatically.",
@@ -251,6 +262,12 @@ def runtime_inventory() -> dict[str, Any]:
 @router.get("")
 def list_runtimes():
     return runtime_inventory()
+
+
+@router.get("/lifecycle")
+def get_runtime_lifecycle():
+    """Show which task runtimes are active; no process is started or stopped by this read."""
+    return lifecycle_snapshot()
 
 
 
@@ -620,8 +637,8 @@ def synthesize_with_piper(req: SynthesisRequest):
         timeout = max(10, min(settings.whisper_timeout_seconds, 600))
         command = [executable, "--model", str(model.resolve()), "--output_file", str(output_path)]
         try:
-            completed = subprocess.run(
-                command, input=req.text, shell=False, capture_output=True,
+            completed = run_task_command(
+                "piper-tts", command, input=req.text, shell=False, capture_output=True,
                 text=True, timeout=timeout, check=False, cwd=str(workspace),
             )
         except subprocess.TimeoutExpired as exc:
@@ -659,7 +676,8 @@ def _convert_audio_to_wav(source_path: Path, target_path: Path, timeout: int) ->
     if not ffmpeg:
         raise HTTPException(503, "Non-WAV transcription requires local FFmpeg. Set NOVA_FFMPEG_CLI_PATH.")
     try:
-        result = subprocess.run(
+        result = run_task_command(
+            "ffmpeg-audio",
             [ffmpeg, "-nostdin", "-v", "error", "-y", "-i", str(source_path),
              "-map_metadata", "-1", "-vn", "-ac", "1", "-ar", "16000",
              "-sample_fmt", "s16", "-f", "wav", str(target_path)],
