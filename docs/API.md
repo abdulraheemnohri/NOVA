@@ -1,6 +1,6 @@
 # NOVA Local API Reference
 
-Base URL: `http://127.0.0.1:8000/api`. All endpoints except `GET /health` require `Authorization: Bearer <token>`. On first startup, read the locally generated token from `data/api.token` (or `NOVA_API_TOKEN_FILE` if configured). The API never returns the token. Keep the service bound to loopback; do not expose it to a LAN or public interface.
+Base URL: `http://127.0.0.1:8000/api`. NOVA has no username/password or API-token login screen. API requests are restricted to loopback peers (`127.0.0.1` or `::1`) and non-loopback peers receive HTTP 403. Keep the backend bound to loopback and do not put it behind a public or LAN-facing proxy. This is local single-user mode, not multi-user authentication.
 
 ## System monitoring\n- `GET /system`: read-only CPU/processor, RAM/swap, storage, battery, GPU, NPU and TPU telemetry. NVIDIA GPU utilization is available when `nvidia-smi` works. On Linux, AMD and Intel GPU utilization, VRAM and temperature are read from sysfs when the kernel driver exposes them. Android adds per-core CPU frequency hints, battery readings from power_supply sysfs or optional Termux:API, accessible shared-storage volumes, and best-effort Qualcomm Adreno/ARM Mali GPU counters. Android NPU/TPU presence depends on device-node visibility and cannot be guaranteed without vendor driver access. Requires the local API bearer token.\n\n## Scheduler
 - `GET /scheduler/status`: report worker state, due backlog, active leases and execution contract.
