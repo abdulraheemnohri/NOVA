@@ -4,7 +4,8 @@ from pydantic import BaseModel,Field,ConfigDict
 from nova.audit import append_audit
 from nova.config import settings
 from nova.policy import evaluate_tool
-from nova.knowledge import SearchRequest,search_knowledge\nfrom nova.web_search import google_search
+from nova.knowledge import SearchRequest,search_knowledge
+from nova.web_search import google_search
 router=APIRouter(prefix="/api/agent/tools",tags=["agent tools"])
 class Call(BaseModel):
  model_config=ConfigDict(extra="forbid")
@@ -14,7 +15,8 @@ class Call(BaseModel):
 # Keeping the schema at the API boundary prevents silently ignored or oversized inputs.
 _TOOL_INPUT_LIMITS = {
  "calculator": {"expression": 256},
- "knowledge_search": {"query": 1000},\n "web_search": {"query": 400},
+ "knowledge_search": {"query": 1000},
+ "web_search": {"query": 400},
  "text_stats": {"text": 10000},
  "json_format": {"json": 100000},
  "base64_encode": {"text": 100000},
@@ -132,6 +134,10 @@ def execute(req:Call):
    q=req.input.get("query")
    if not isinstance(q,str) or not q.strip() or len(q)>1000:raise ValueError("Invalid query.")
    r=search_knowledge(SearchRequest(query=q,limit=5))
+  elif req.name=="web_search":
+   q=req.input.get("query")
+   if not isinstance(q,str) or not q.strip() or len(q)>400:raise ValueError("Search query must be 1-400 characters.")
+   r=google_search(q, limit=5)
   else:raise ValueError("Unknown tool; default deny.")
  except (ValueError,SyntaxError,ZeroDivisionError,OverflowError) as e:
   append_audit(settings.audit_path,"agent.tool.failed",{"tool":req.name});raise HTTPException(422,str(e)) from e
