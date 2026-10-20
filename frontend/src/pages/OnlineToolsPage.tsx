@@ -14,7 +14,7 @@ export default function OnlineToolsPage({apiFetch,onError}:Props){
  const [results,setResults]=useState<SearchResponse|null>(null);
  const [busy,setBusy]=useState(false);
  const [loading,setLoading]=useState(true);
- useEffect(()=>{let alive=true;void apiFetch("/api/online-tools").then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.detail||"Could not load online tool directory");if(alive)setTools(d.tools||[])}).catch(e=>{if(alive)onError(e instanceof Error?e.message:"Could not load online tool directory")}).finally(()=>{if(alive)setLoading(false)});return()=>{alive=false}},[apiFetch,onError]);
+ useEffect(()=>{let alive=true;void apiFetch("/api/online-tools").then(async r=>{const d=await r.json();if(!r.ok)throw Error(d.detail||"Could not load online tool directory");if(alive)setTools(d.tools||[])}).catch(e=>{if(alive)onError(e instanceof Error?e.message:"Could not load online tool directory")}).finally(()=>{if(alive)setLoading(false)});return()=>{alive=false}},[]);
  async function search(e:FormEvent){e.preventDefault();if(!query.trim())return;setBusy(true);setResults(null);try{const path=provider==="duckduckgo"?"/api/duckduckgo-search":"/api/web-search";const r=await apiFetch(path+"?q="+encodeURIComponent(query.trim())+"&limit=5");const d=await r.json();if(!r.ok)throw Error(d.detail||"Web search failed");setResults(d)}catch(e){onError(e instanceof Error?e.message:"Web search failed")}finally{setBusy(false)}}
  const aiTools=tools.filter(t=>t.category!=="Web search");
  return <section className="space-y-4">
