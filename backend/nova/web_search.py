@@ -6,7 +6,7 @@ page content as instructions. Network access is limited to Google's search URL.
 from __future__ import annotations
 
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, quote_plus, urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 from fastapi import APIRouter, HTTPException, Query
