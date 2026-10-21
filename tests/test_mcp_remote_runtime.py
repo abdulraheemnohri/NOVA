@@ -141,3 +141,34 @@ def test_remote_mcp_rejects_non_loopback_plain_http(monkeypatch, tmp_path):
         })
     assert created.status_code == 422
     assert "must use HTTPS" in created.json()["detail"]
+
+
+
+def test_remote_mcp_rejects_oversized_json_rpc_response(monkeypatch, tmp_path):
+    _temp(monkeypatch, tmp_path)
+    import nova.mcp_remote_runtime as remote_runtime
+
+    monkeypatch.setattr(remote_runtime, "MAX_RESPONSE_BYTES", 128)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _MCPHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        with _client() as client:
+            created = client.post("/api/integrations/mcp", json={
+                "name": "Oversized response MCP",
+                "enabled": True,
+                "config": {
+                    "transport": "streamable_http",
+                    "endpoint": f"http://127.0.0.1:{server.server_port}/mcp",
+                },
+            })
+            assert created.status_code == 201, created.text
+            integration_id = created.json()["id"]
+            response = client.post(f"/api/integrations/mcp/{integration_id}/connect")
+
+        assert response.status_code == 502
+        assert "ValueError" in response.json()["detail"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
