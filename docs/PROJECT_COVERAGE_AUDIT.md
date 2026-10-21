@@ -63,7 +63,7 @@ The main navigation contains these work areas:
 These are not silently marked complete; they need a distinct implementation and tests if they are to become supported product capabilities.
 
 1. **MCP transport support:** stdio and Streamable HTTP transports are implemented in the current follow-up. Legacy SSE-only servers, OAuth discovery/refresh, and arbitrary custom remote headers are not supported. Validate against more real servers before calling interoperability complete.
-2. **API-provider execution:** provider definitions/configuration exist, but arbitrary configured API-provider execution is not established by the current Integrations CRUD API.
+2. **API-provider execution:** an explicit JSON-only runtime now exists for enabled providers with a configured HTTPS (or loopback HTTP) base URL and exact `allowed_paths` entries. It supports GET/POST, `none` or `bearer_env` authentication, bounded timeout/request/response sizes, rejects redirects, and audits metadata without request bodies or credentials. `header_env` and `oauth_external` remain configuration-only; provider-specific adapters, richer response formats, and real-service interoperability tests remain future work.
 4. **Process sandboxing:** configured MCP child processes run with the NOVA backend user's OS permissions; this is not a sandbox. Use a low-privilege OS account and narrow workspace scope.
 5. **Multi-user RBAC:** the current security model is one local operator bearer token, not per-user roles or account isolation.
 6. **Semantic RAG:** lexical local retrieval is available; full semantic/vector retrieval should not be described as universally enabled or production-complete.
@@ -83,9 +83,9 @@ These are not silently marked complete; they need a distinct implementation and 
 
 ## Suggested implementation order
 
-1. Validate Streamable HTTP against additional real MCP servers and verify session/auth lifecycle behavior; keep API-provider execution as a separate, explicit feature with independent security review.
+1. Validate Streamable HTTP against additional real MCP servers and verify session/auth lifecycle behavior.
 2. Add route/quick-action tests and a frontend page coverage assertion.
-3. Add server-side tests proving Private Chat cannot invoke online integrations regardless of request payload.
+3. Keep Private Chat offline-only; regression tests now verify that an API-provider action emitted as model text does not trigger provider execution. Continue classifying every future network-capable tool at the backend boundary.
 4. Add conversation retention/export/import edge-case tests, including attachment cleanup and delete semantics.
 5. Add explicit provider adapters one at a time (with per-provider timeouts, secret references, allowlisted capabilities and tests); do not infer support from saved configuration alone.
 6. Add remote MCP transport only with separate threat modeling and transport/auth tests.
