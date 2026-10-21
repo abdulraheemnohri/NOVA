@@ -260,7 +260,7 @@ async def call_mcp_tool(integration_id: str, tool_name: str, request: ToolCall):
         tool = next((t for t in remote_tools if t.get("name") == tool_name), None)
         if tool is None:
             raise HTTPException(404, "Tool not found in the connected server's discovered tool list.")
-        read_only = bool((tool.get("annotations") or {}).get("readOnlyHint", False))
+        read_only = bool(tool.get("read_only", (tool.get("annotations") or {}).get("readOnlyHint", False)))
         if not read_only and not request.confirm_side_effects:
             raise HTTPException(428, "Tool may have side effects. Retry only after explicit operator confirmation with confirm_side_effects=true.")
         try:
