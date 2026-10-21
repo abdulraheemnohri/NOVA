@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from nova.audit import append_audit
 from nova.config import settings
 from nova.integrations import _list
+from nova import mcp_remote_runtime as remote_mcp
 
 router = APIRouter(prefix="/api/integrations/mcp", tags=["mcp-runtime"])
 MAX_LINE_BYTES = 1_000_000
@@ -147,8 +148,10 @@ async def connect_mcp(integration_id: str):
     if not item["enabled"]:
         raise HTTPException(409, "Enable this MCP configuration before connecting.")
     config = item["config"]
+    if config.get("transport", "stdio") == "streamable_http":
+        return await remote_mcp.connect_remote(integration_id)
     if config.get("transport", "stdio") != "stdio":
-        raise HTTPException(501, "MCP Runtime V1 supports stdio servers only; remote Streamable HTTP is not implemented yet.")
+        raise HTTPException(422, "Unsupported MCP transport.")
     command = config.get("command")
     args = config.get("args", [])
     if not isinstance(command, str) or not command.strip() or not isinstance(args, list):
@@ -225,14 +228,22 @@ async def _stop(session: Session) -> None:
 
 @router.get("/{integration_id}/status")
 async def mcp_status(integration_id: str):
-    _integration(integration_id)
+    item = _integration(integration_id)
+    if item["config"].get("transport", "stdio") == "streamable_http":
+        remote = remote_mcp.remote_status(integration_id)
+        return {"id": integration_id, "connected": bool(remote), **(remote or {})}
     session = _sessions.get(integration_id)
     return {"id": integration_id, "connected": bool(session and session.process.returncode is None), **(_public(session) if session else {})}
 
 
 @router.get("/{integration_id}/tools")
 async def mcp_tools(integration_id: str):
-    _integration(integration_id)
+    item = _integration(integration_id)
+    if item["config"].get("transport", "stdio") == "streamable_http":
+        remote_tools = remote_mcp.remote_tools(integration_id)
+        if remote_tools is None:
+            raise HTTPException(409, "Remote MCP server is not connected.")
+        return {"items": remote_tools}
     session = _sessions.get(integration_id)
     if not session or session.process.returncode is not None:
         raise HTTPException(409, "MCP server is not connected.")
@@ -241,7 +252,25 @@ async def mcp_tools(integration_id: str):
 
 @router.post("/{integration_id}/tools/{tool_name}/call")
 async def call_mcp_tool(integration_id: str, tool_name: str, request: ToolCall):
-    _integration(integration_id)
+    item = _integration(integration_id)
+    if item["config"].get("transport", "stdio") == "streamable_http":
+        remote_tools = remote_mcp.remote_tools(integration_id)
+        if remote_tools is None:
+            raise HTTPException(409, "Remote MCP server is not connected.")
+        tool = next((t for t in remote_tools if t.get("name") == tool_name), None)
+        if tool is None:
+            raise HTTPException(404, "Tool not found in the connected server's discovered tool list.")
+        read_only = bool((tool.get("annotations") or {}).get("readOnlyHint", False))
+        if not read_only and not request.confirm_side_effects:
+            raise HTTPException(428, "Tool may have side effects. Retry only after explicit operator confirmation with confirm_side_effects=true.")
+        try:
+            result = await remote_mcp.call_remote(integration_id, tool_name, request.arguments)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            append_audit(settings.audit_path, "mcp.remote.tool_failed", {"integration_id": integration_id, "tool": tool_name, "error_type": type(exc).__name__})
+            raise HTTPException(502, "Remote MCP tool call failed.") from exc
+        return {"integration_id": integration_id, "tool": tool_name, "result": result}
     session = _sessions.get(integration_id)
     if not session or session.process.returncode is not None:
         raise HTTPException(409, "MCP server is not connected.")
@@ -265,7 +294,10 @@ async def call_mcp_tool(integration_id: str, tool_name: str, request: ToolCall):
 
 @router.post("/{integration_id}/disconnect")
 async def disconnect_mcp(integration_id: str):
-    _integration(integration_id)
+    item = _integration(integration_id)
+    if item["config"].get("transport", "stdio") == "streamable_http":
+        await remote_mcp.disconnect_remote(integration_id)
+        return {"id": integration_id, "connected": False}
     async with _sessions_lock:
         session = _sessions.pop(integration_id, None)
     if session:
@@ -279,3 +311,4 @@ async def shutdown_mcp_sessions() -> None:
         sessions = list(_sessions.values())
         _sessions.clear()
     await asyncio.gather(*(_stop(session) for session in sessions), return_exceptions=True)
+    await remote_mcp.shutdown_remote_sessions()
