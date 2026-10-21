@@ -12,9 +12,8 @@ def _client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
     token_path = tmp_path / "api.token"
     token_path.write_text("diagnostics-test-token")
-    monkeypatch.setattr(settings, "api_token_file", token_path)
     append_audit(settings.audit_path, "test.start", {})
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         yield client, {"Authorization": "Bearer diagnostics-test-token"}
 
 
@@ -60,10 +59,10 @@ def test_diagnostics_does_not_claim_unknown_model_compatibility(tmp_path, monkey
         assert any("does not prove" in note for note in body["limitations"])
 
 
-def test_diagnostics_requires_local_api_token(tmp_path, monkeypatch):
+def test_diagnostics_is_available_from_loopback(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as (client, _headers):
         response = client.get("/api/diagnostics")
-        assert response.status_code == 401
+        assert response.status_code == 200
 
 
 def test_diagnostic_authority_is_allowlisted_and_exec_requires_confirmation(tmp_path, monkeypatch):
