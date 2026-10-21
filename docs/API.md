@@ -2,7 +2,7 @@
 
 Base URL: `http://127.0.0.1:8000/api`. NOVA has no username/password or API-token login screen. API requests are restricted to loopback peers (`127.0.0.1` or `::1`) and non-loopback peers receive HTTP 403. Keep the backend bound to loopback and do not put it behind a public or LAN-facing proxy. This is local single-user mode, not multi-user authentication.
 
-## System monitoring\n- `GET /system`: read-only CPU/processor, RAM/swap, storage, battery, GPU, NPU and TPU telemetry. NVIDIA GPU utilization is available when `nvidia-smi` works. On Linux, AMD and Intel GPU utilization, VRAM and temperature are read from sysfs when the kernel driver exposes them. Android adds per-core CPU frequency hints, battery readings from power_supply sysfs or optional Termux:API, accessible shared-storage volumes, and best-effort Qualcomm Adreno/ARM Mali GPU counters. Android NPU/TPU presence depends on device-node visibility and cannot be guaranteed without vendor driver access. Requires the local API bearer token.\n\n## Scheduler
+## System monitoring\n- `GET /system`: read-only CPU/processor, RAM/swap, storage, battery, GPU, NPU and TPU telemetry. NVIDIA GPU utilization is available when `nvidia-smi` works. On Linux, AMD and Intel GPU utilization, VRAM and temperature are read from sysfs when the kernel driver exposes them. Android adds per-core CPU frequency hints, battery readings from power_supply sysfs or optional Termux:API, accessible shared-storage volumes, and best-effort Qualcomm Adreno/ARM Mali GPU counters. Android NPU/TPU presence depends on device-node visibility and cannot be guaranteed without vendor driver access. Requires a loopback connection.\n\n## Scheduler
 - `GET /scheduler/status`: report worker state, due backlog, active leases and execution contract.
 - `PUT /scheduler/config`: persist the background-worker toggle and poll interval (5–3600 seconds) in local SQLite. This only changes scheduling; it does not grant tool permissions.
 - `POST /scheduler/run-once`: dispatch due tasks to `planned` for operator review. No commands or tools are executed.
@@ -64,7 +64,7 @@ A workspace rollback is a high-risk action. Create an approval with action `roll
 ## Self-created skills and safe tool proposals
 - `GET /self/skills`, `POST /self/skills`, `POST /self/skills/{id}/activate`: persist and explicitly activate user-reviewed skill instructions. Instructions are stored as data and are not interpreted as code.
 - `GET /self/tools`, `POST /self/tools`, `POST /self/tools/{id}/review`: list, propose, and review tools limited to existing calculator and local knowledge-search primitives with exact fixed schemas. Review does not register new capabilities or execute generated code.
-- These endpoints are under `/api`; the normal local bearer-token and audit-integrity middleware applies.
+- These endpoints are under `/api`; the loopback-only and audit-integrity middleware applies.
 
 
 ## Controlled skill execution
@@ -115,7 +115,7 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 ## Runtime API discovery and configuration
 
 - Fetch the live OpenAPI schema from `GET /openapi.json` and interactive API docs from `/docs` on the local backend. These reflect routes registered by the running version; clients should not assume every optional runtime is installed.
-- Use the authenticated helper for terminal calls: `bash scripts/nova-api.sh GET /api/health`. It reads the local token file and accepts loopback API URLs only.
+- Use the local-only helper for terminal calls: `bash scripts/nova-api.sh GET /api/health`. It accepts loopback API URLs only and sends no API token.
 - Operator UI preferences are available at `GET/PUT /api/settings/preferences`. Runtime paths, inference endpoint, authentication and security policy are environment-controlled with `NOVA_*` settings; edit the local `.env` and restart the backend to apply them. Do not expose secrets in frontend settings or commit them.
 - The web UI deliberately cannot edit bind addresses, authentication secrets, tool permissions or approval policy. These controls are not dynamically mutable through the preferences endpoint.
 - Review `docs/DEVELOPMENT.md` for the opt-in Linux systemd user service installer. It does not apply to Windows or macOS.
