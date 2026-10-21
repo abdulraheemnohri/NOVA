@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json,re,sqlite3,uuid,os,time
 from datetime import datetime,timezone
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 import httpx
 from fastapi import APIRouter,HTTPException
 from pydantic import BaseModel,ConfigDict,Field
@@ -38,6 +38,27 @@ def _list(kind):
  c=_db()
  try:return [_pub(r) for r in c.execute("SELECT * FROM integration_configs WHERE kind=? ORDER BY updated_at DESC",(kind,))]
  finally:c.close()
+def _safe_api_allowlist_path(path: str) -> bool:
+ """Reject path syntax that can change after URL decoding or proxy normalization."""
+ if not isinstance(path, str) or not path.startswith("/") or len(path) > 200:
+  return False
+ candidate = path
+ for _ in range(5):
+  if candidate.startswith("//") or "\\" in candidate or "?" in candidate or "#" in candidate:
+   return False
+  if any(ord(ch) < 32 or ord(ch) == 127 for ch in candidate):
+   return False
+  if any(part in {".", ".."} for part in candidate.split("/")):
+   return False
+  decoded = unquote(candidate)
+  if decoded == candidate:
+   return True
+  # Encoded separators can be interpreted differently by clients, proxies, and servers.
+  if decoded.count("/") != candidate.count("/"):
+   return False
+  candidate = decoded
+ return False
+
 def _validate(kind,cfg):
  if not isinstance(cfg,dict):raise HTTPException(422,"Configuration must be an object.")
  if kind=="mcp":
@@ -71,7 +92,7 @@ def _validate(kind,cfg):
   if auth not in {"none","bearer_env","header_env","oauth_external"}:raise HTTPException(422,"Unsupported authentication mode.")
   if auth=="bearer_env" and not v:raise HTTPException(422,"bearer_env requires api_key_env.")
   paths=cfg.get("allowed_paths",[])
-  if not isinstance(paths,list) or len(paths)>50 or any(not isinstance(x,str) or not x.startswith("/") or x.startswith("//") or "?" in x or "#" in x or chr(92) in x or any(part==".." for part in x.split("/")) or len(x)>200 for x in paths):
+  if not isinstance(paths,list) or len(paths)>50 or any(not _safe_api_allowlist_path(x) for x in paths):
    raise HTTPException(422,"allowed_paths must be a list of safe absolute-path allowlist entries.")
   timeout=cfg.get("timeout_seconds",10)
   if not isinstance(timeout,(int,float)) or isinstance(timeout,bool) or not 1<=timeout<=30:raise HTTPException(422,"timeout_seconds must be between 1 and 30.")
