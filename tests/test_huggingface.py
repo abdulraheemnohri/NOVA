@@ -11,14 +11,13 @@ from nova import huggingface
 
 @contextmanager
 def _client(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings, "api_token_file", tmp_path / "api.token")
     monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
     monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
     monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
     monkeypatch.setattr(settings, "huggingface_cache_dir", tmp_path / "models")
     monkeypatch.setattr(settings, "huggingface_token_file", tmp_path / "private" / "huggingface.token")
     settings.workspace.mkdir(parents=True, exist_ok=True)
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         token = settings.api_token_file.read_text(encoding="utf-8").strip()
         client.headers.update({"Authorization": f"Bearer {token}"})
         yield client
