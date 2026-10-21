@@ -25,7 +25,10 @@ Base URL: `http://127.0.0.1:8000/api`. NOVA has no username/password or API-toke
 - `GET /health`: API status, LiteRT-LM endpoint reachability, and audit-chain verification.
 - `GET /settings`: read-only runtime and policy summary.
 - `GET /audit/verify`: verify the JSONL audit hash chain.
-- `POST /chat`: send a prompt to the configured loopback LiteRT-LM-compatible endpoint. There is no cloud or alternate-runtime fallback.
+- `POST /chat`: send a prompt to the configured loopback LiteRT-LM-compatible endpoint. Optional `mode` is `private` (default; offline-only guidance) or `public` (online search evidence may be supplied by the UI). There is no remote AI API or alternate-runtime fallback.
+- `GET /chat/conversations`, `POST /chat/conversations`, `PATCH /chat/conversations/{id}`, `DELETE /chat/conversations/{id}`: locally saved chat history with per-conversation private/public mode, archive, rename and delete.
+- `GET /chat/conversations/{id}/messages`, `POST /chat/conversations/{id}/messages`: automatically persist and retrieve message history in local SQLite. Chat UI also supports search, attachments, regeneration, copy, voice input/output and JSON/Markdown/ZIP export/import.
+- `GET /web-search?q=...` and `GET /duckduckgo-search?q=...`: optional bounded online search adapters. The Private Chat UI never calls these endpoints; Public Chat may call them when automatic web search is enabled. Search results are untrusted evidence.
 
 ## Knowledge, goals, and memory
 - `POST /documents/import`: import supported local text content.

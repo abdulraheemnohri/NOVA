@@ -33,7 +33,11 @@ def _connect() -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("""CREATE TABLE IF NOT EXISTS chat_conversations(
         id TEXT PRIMARY KEY, title TEXT NOT NULL, archived INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'private')""")
+    # Upgrade existing databases in place; old chats default to the safer private mode.
+    columns = {row["name"] for row in con.execute("PRAGMA table_info(chat_conversations)").fetchall()}
+    if "mode" not in columns:
+        con.execute("ALTER TABLE chat_conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'private'")
     con.execute("""CREATE TABLE IF NOT EXISTS chat_messages(
         id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, role TEXT NOT NULL,
         content TEXT NOT NULL, attachments_json TEXT NOT NULL DEFAULT '[]',
@@ -66,11 +70,13 @@ def _message(row: sqlite3.Row) -> dict[str, Any]:
 
 class ConversationCreate(BaseModel):
     title: str = Field(default="New chat", min_length=1, max_length=120)
+    mode: str = Field(default="private", pattern=r"^(private|public)$")
 
 
 class ConversationUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=120)
     archived: bool | None = None
+    mode: str | None = Field(default=None, pattern=r"^(private|public)$")
 
 
 class MessageCreate(BaseModel):
@@ -110,8 +116,8 @@ def create_conversation(req: ConversationCreate):
     now, conversation_id = _now(), str(uuid.uuid4())
     con = _connect()
     try:
-        con.execute("INSERT INTO chat_conversations(id,title,created_at,updated_at) VALUES(?,?,?,?)",
-                    (conversation_id, req.title.strip(), now, now))
+        con.execute("INSERT INTO chat_conversations(id,title,created_at,updated_at,mode) VALUES(?,?,?,?,?)",
+                    (conversation_id, req.title.strip(), now, now, req.mode))
         con.commit()
         return _conversation(con.execute("SELECT * FROM chat_conversations WHERE id=?", (conversation_id,)).fetchone())
     finally:
@@ -120,8 +126,8 @@ def create_conversation(req: ConversationCreate):
 
 @router.patch("/conversations/{conversation_id}")
 def update_conversation(conversation_id: str, req: ConversationUpdate):
-    if req.title is None and req.archived is None:
-        raise HTTPException(422, "Provide a title or archived value.")
+    if req.title is None and req.archived is None and req.mode is None:
+        raise HTTPException(422, "Provide a title, archived value, or chat mode.")
     con = _connect()
     try:
         _require_conversation(con, conversation_id)
@@ -131,6 +137,9 @@ def update_conversation(conversation_id: str, req: ConversationUpdate):
         if req.archived is not None:
             con.execute("UPDATE chat_conversations SET archived=?,updated_at=? WHERE id=?",
                         (int(req.archived), _now(), conversation_id))
+        if req.mode is not None:
+            con.execute("UPDATE chat_conversations SET mode=?,updated_at=? WHERE id=?",
+                        (req.mode, _now(), conversation_id))
         con.commit()
         return _conversation(_require_conversation(con, conversation_id))
     finally:
@@ -378,6 +387,9 @@ async def import_chat_backup(file: UploadFile = File(...)):
             title = source_conversation.get("title")
             if not isinstance(title, str) or not title.strip() or len(title) > 120:
                 raise HTTPException(422, "Backup conversation title is invalid.")
+            mode = source_conversation.get("mode", "private")
+            if mode not in {"private", "public"}:
+                raise HTTPException(422, "Backup conversation mode is invalid.")
 
             attachment_map: dict[str, str] = {}
             restored_uploads: list[dict[str, Any]] = []
@@ -442,8 +454,8 @@ async def import_chat_backup(file: UploadFile = File(...)):
                 ))
             now = _now()
             conversation_id = str(uuid.uuid4())
-            con.execute("INSERT INTO chat_conversations(id,title,archived,created_at,updated_at) VALUES(?,?,?,?,?)",
-                        (conversation_id, title.strip(), 0, now, now))
+            con.execute("INSERT INTO chat_conversations(id,title,archived,created_at,updated_at,mode) VALUES(?,?,?,?,?,?)",
+                        (conversation_id, title.strip(), 0, now, now, mode))
             for attachment in restored_uploads:
                 con.execute(
                     "INSERT INTO chat_uploads(id,conversation_id,original_name,stored_name,content_type,size_bytes,sha256,extracted_text,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -457,7 +469,7 @@ async def import_chat_backup(file: UploadFile = File(...)):
                     (message_id, conversation_id, role, content, refs_json, created_at),
                 )
             con.commit()
-            return {"id": conversation_id, "title": title.strip(), "messages_restored": len(restored_messages),
+            return {"id": conversation_id, "title": title.strip(), "mode": mode, "messages_restored": len(restored_messages),
                     "attachments_restored": len(restored_uploads), "archived": False}
     except HTTPException:
         con.rollback()
