@@ -2,7 +2,7 @@
 
 **Audit date:** 2026-10-21  
 **Repository:** `abdulraheemnohri/NOVA`  
-**Audited base:** `main` at `5a2beed2725fbf3f0b803fabc8c2970a191207ff`
+**Audited baseline:** `main` at `91c5ec75369be01be1cd04bef3a1e16a6d85d833` (2026-10-21). This document is a source review; target-device validation remains separate.
 
 This is a source-tree and route-wiring audit, not a claim that every feature has been exercised on a real host. CI and hardware-specific validation must be recorded separately.
 
@@ -10,7 +10,7 @@ This is a source-tree and route-wiring audit, not a claim that every feature has
 
 NOVA already has a substantial local-first backend and web UI. The main verified issue found in this pass was a navigation target named **Agent Console** that had no dedicated render branch; the dashboard quick action pointed to it and therefore displayed the dashboard rather than opening chat. The route was corrected in the companion change: the duplicate navigation item was removed and the quick action now opens **Chat**.
 
-**Follow-up after the audited SHA:** MCP stdio runtime was merged in PR #148, and Private Chat's backend offline-only enforcement was merged in PR #150. The current follow-up branch adds Streamable HTTP support with a separate bounded JSON-RPC transport, environment-based bearer credentials, redirect rejection, and regression tests. These are implementation-level checks; remote-server interoperability still needs testing against multiple real MCP servers.
+**Follow-up after the audited SHA:** MCP stdio runtime was merged in PR #148, and Private Chat's backend offline-only enforcement was merged in PR #150. Streamable HTTP support is present in `main`; additional real-server interoperability testing remains required. PR #155 was merged as `91c5ec75369be01be1cd04bef3a1e16a6d85d833`; it isolates API allowlist newline serialization and adds LF/CRLF regression tests. The merge commit's CI run is tracked separately and must be green before release. These are implementation-level checks; remote-server interoperability still needs testing against multiple real MCP servers.
 
 ## Frontend page inventory
 
@@ -70,7 +70,7 @@ These are not silently marked complete; they need a distinct implementation and 
 7. **Non-LiteRT model execution:** GGUF, ONNX, TFLite and Safetensors can be inventoried/downloaded as supported by the manager, but they are not general-purpose chat runtimes in the current architecture.
 8. **Autonomous task execution:** the task scheduler does not execute arbitrary task plans or generated shell commands. Due tasks are staged for operator review.
 9. **Real-device validation:** LiteRT-LM CLI/server compatibility, model loading, speech/OCR binaries, mobile device counters and offline smoke tests require tests on each target OS/device.
-10. **Frontend routing regression tests:** add automated coverage so every visible navigation item and quick action maps to an intentional render target.
+10. **Frontend routing regression tests:** `frontend/tests/navigation.test.ts` covers navigation render branches and quick-action destinations. `frontend/tests/apiAllowlist.test.ts` covers LF/CRLF allowlist editing.
 
 ## Required acceptance checks for future feature work
 
@@ -84,9 +84,9 @@ These are not silently marked complete; they need a distinct implementation and 
 ## Suggested implementation order
 
 1. Validate Streamable HTTP against additional real MCP servers and verify session/auth lifecycle behavior.
-2. Add route/quick-action tests and a frontend page coverage assertion.
+2. Keep route/quick-action tests and the API allowlist newline regression tests in CI; extend page coverage as navigation evolves.
 3. Keep Private Chat offline-only; regression tests now verify that an API-provider action emitted as model text does not trigger provider execution. Continue classifying every future network-capable tool at the backend boundary.
-4. Add conversation retention/export/import edge-case tests, including attachment cleanup and delete semantics.
+4. Expand conversation retention/export/import edge-case tests, including attachment cleanup and delete semantics.
 5. Add explicit provider adapters one at a time (with per-provider timeouts, secret references, allowlisted capabilities and tests); do not infer support from saved configuration alone.
 6. Add remote MCP transport only with separate threat modeling and transport/auth tests.
 7. Implement optional sandboxing and multi-user authorization as separate security projects.
