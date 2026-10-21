@@ -7,30 +7,7 @@ from fastapi.testclient import TestClient
 from nova.config import settings
 from nova.main import app
 
-_FAKE_MCP = r"""
-import json, sys
-for line in sys.stdin:
-    try:
-        msg = json.loads(line)
-    except Exception:
-        continue
-    if "id" not in msg:
-        continue
-    method = msg.get("method")
-    if method == "initialize":
-        result = {"protocolVersion": "2025-03-26", "capabilities": {"tools": {}}, "serverInfo": {"name": "fake", "version": "1"}}
-    elif method == "tools/list":
-        result = {"tools": [
-            {"name": "read_info", "description": "Read-only fixture", "annotations": {"readOnlyHint": True}},
-            {"name": "write_info", "description": "Mutating fixture", "annotations": {"readOnlyHint": False}}
-        ]}
-    elif method == "tools/call":
-        result = {"content": [{"type": "text", "text": "called:" + msg["params"]["name"]}]}
-    else:
-        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "Method not found"}}), flush=True)
-        continue
-    print(json.dumps({"jsonrpc": "2.0", "id": msg["id"], "result": result}), flush=True)
-"""
+_FAKE_MCP_PATH = str(__import__("pathlib").Path(__file__).parent / "fixtures" / "fake_mcp_server.py")
 
 
 @contextmanager
@@ -52,7 +29,7 @@ def test_stdio_mcp_connect_discover_call_and_disconnect(monkeypatch, tmp_path):
         created = client.post("/api/integrations/mcp", json={
             "name": "Fake test MCP",
             "enabled": True,
-            "config": {"transport": "stdio", "command": sys.executable, "args": ["-u", "-c", _FAKE_MCP]},
+            "config": {"transport": "stdio", "command": sys.executable, "args": ["-u", _FAKE_MCP_PATH]},
         })
         assert created.status_code == 201, created.text
         integration_id = created.json()["id"]
