@@ -1,5 +1,5 @@
 import {useEffect,useRef,useState,type FormEvent,type ReactNode} from "react";
-import {Archive,ArrowUp,Copy,FileText,Image as ImageIcon,Mic,MicOff,Paperclip,Plus,RefreshCw,Search,Send,Square,Trash2,Volume2,VolumeX,MessageSquare,Download,Edit3} from "lucide-react";
+import {Archive,ArrowUp,Copy,FileText,Image as ImageIcon,Mic,MicOff,Paperclip,Plus,RefreshCw,Search,Send,Square,Trash2,Volume2,VolumeX,MessageSquare,Download,Edit3,Wrench} from "lucide-react";
 import {PageHeader} from "../components/ui";
 
 type Attachment={id:string;name:string;content_type:string;size_bytes:number;sha256:string;text_extracted?:boolean;extracted_text?:string;note?:string|null};
