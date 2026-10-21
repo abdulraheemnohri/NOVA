@@ -10,7 +10,7 @@ This is a source-tree and route-wiring audit, not a claim that every feature has
 
 NOVA already has a substantial local-first backend and web UI. The main verified issue found in this pass was a navigation target named **Agent Console** that had no dedicated render branch; the dashboard quick action pointed to it and therefore displayed the dashboard rather than opening chat. The route was corrected in the companion change: the duplicate navigation item was removed and the quick action now opens **Chat**.
 
-The MCP stdio runtime was **not present on the audited main SHA**. It exists in the separate PR #148 branch and should only be integrated after its latest CI run is green and runtime security/tests have been reviewed.
+**Follow-up after the audited SHA:** MCP stdio runtime was merged in PR #148, and Private Chat's backend offline-only enforcement was merged in PR #150. The current follow-up branch adds Streamable HTTP support with a separate bounded JSON-RPC transport, environment-based bearer credentials, redirect rejection, and regression tests. These are implementation-level checks; remote-server interoperability still needs testing against multiple real MCP servers.
 
 ## Frontend page inventory
 
@@ -62,9 +62,8 @@ The main navigation contains these work areas:
 
 These are not silently marked complete; they need a distinct implementation and tests if they are to become supported product capabilities.
 
-1. **MCP execution on main:** stdio runtime is in PR #148, not in the audited main tree. The PR explicitly does not implement remote Streamable HTTP MCP transport.
+1. **MCP transport support:** stdio and Streamable HTTP transports are implemented in the current follow-up. Legacy SSE-only servers, OAuth discovery/refresh, and arbitrary custom remote headers are not supported. Validate against more real servers before calling interoperability complete.
 2. **API-provider execution:** provider definitions/configuration exist, but arbitrary configured API-provider execution is not established by the current Integrations CRUD API.
-3. **Remote MCP transports:** Streamable HTTP/SSE transport, remote authentication refresh and connection lifecycle are not part of MCP stdio V1.
 4. **Process sandboxing:** configured MCP child processes run with the NOVA backend user's OS permissions; this is not a sandbox. Use a low-privilege OS account and narrow workspace scope.
 5. **Multi-user RBAC:** the current security model is one local operator bearer token, not per-user roles or account isolation.
 6. **Semantic RAG:** lexical local retrieval is available; full semantic/vector retrieval should not be described as universally enabled or production-complete.
@@ -77,14 +76,14 @@ These are not silently marked complete; they need a distinct implementation and 
 
 - Backend: unit and API tests; malformed input and auth checks; path traversal/symlink boundaries; timeout/cancellation; concurrent updates; audit events; disabled-feature behavior.
 - Frontend: unit tests for route targets, empty/loading/error states, form validation, persistence, destructive confirmations and keyboard/mobile navigation.
-- Privacy: private chat must not call web search, external APIs, MCP or online tools; test at the backend boundary, not only by hiding UI controls.
+- Privacy: Private Chat's current web-search adapters are filtered from the prompt and blocked at backend dispatch; keep all future network-capable tool names classified and blocked at this boundary. MCP and provider APIs are separate operator-managed routes, not tools exposed to Private Chat.
 - Integration security: never store plaintext provider secrets in config rows; use environment-variable references or owner-only secret files; redact secrets from logs/status.
 - Runtime safety: MCP subprocesses use argument arrays (never shell concatenation), explicit environment references, bounded output/timeouts, explicit confirmation for side effects, and shutdown cleanup.
 - Release gate: CI green on the exact PR head SHA; review changed files and permissions; real-host smoke tests before calling the release production-ready.
 
 ## Suggested implementation order
 
-1. Merge the MCP stdio runtime only after CI is green and code review is complete.
+1. Validate Streamable HTTP against additional real MCP servers and verify session/auth lifecycle behavior; keep API-provider execution as a separate, explicit feature with independent security review.
 2. Add route/quick-action tests and a frontend page coverage assertion.
 3. Add server-side tests proving Private Chat cannot invoke online integrations regardless of request payload.
 4. Add conversation retention/export/import edge-case tests, including attachment cleanup and delete semantics.
