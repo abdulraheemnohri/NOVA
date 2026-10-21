@@ -61,7 +61,9 @@ def _validate(kind,cfg):
   u=cfg.get("base_url","")
   if u:
    p=urlparse(u)
-   if p.scheme not in {"https","http"} or not p.hostname or p.username or p.password or p.fragment:raise HTTPException(422,"API base URL must be absolute HTTP(S).")
+   if p.scheme not in {"https","http"} or not p.hostname or p.username or p.password or p.fragment or p.query:raise HTTPException(422,"API base URL must be absolute HTTP(S) without query, fragment, or credentials.")
+   try:p.port
+   except ValueError:raise HTTPException(422,"API base URL has an invalid port.")
    if p.scheme=="http" and p.hostname not in {"127.0.0.1","localhost","::1"}:raise HTTPException(422,"Remote API endpoints must use HTTPS.")
   v=cfg.get("api_key_env")
   if v is not None and (not isinstance(v,str) or not ENV.fullmatch(v)):raise HTTPException(422,"Use an environment-variable name, not a secret.")
@@ -69,7 +71,7 @@ def _validate(kind,cfg):
   if auth not in {"none","bearer_env","header_env","oauth_external"}:raise HTTPException(422,"Unsupported authentication mode.")
   if auth=="bearer_env" and not v:raise HTTPException(422,"bearer_env requires api_key_env.")
   paths=cfg.get("allowed_paths",[])
-  if not isinstance(paths,list) or len(paths)>50 or any(not isinstance(x,str) or not x.startswith("/") or x.startswith("//") or "?" in x or "#" in x or any(part==".." for part in x.split("/")) or len(x)>200 for x in paths):
+  if not isinstance(paths,list) or len(paths)>50 or any(not isinstance(x,str) or not x.startswith("/") or x.startswith("//") or "?" in x or "#" in x or chr(92) in x or any(part==".." for part in x.split("/")) or len(x)>200 for x in paths):
    raise HTTPException(422,"allowed_paths must be a list of safe absolute-path allowlist entries.")
   timeout=cfg.get("timeout_seconds",10)
   if not isinstance(timeout,(int,float)) or isinstance(timeout,bool) or not 1<=timeout<=30:raise HTTPException(422,"timeout_seconds must be between 1 and 30.")
