@@ -54,6 +54,8 @@ def _validate(kind,cfg):
   if not isinstance(refs,dict) or len(refs)>40:raise HTTPException(422,"Invalid environment references.")
   for k,v in refs.items():
    if not re.fullmatch(r"[A-Z_][A-Z0-9_]{0,63}",k) or (v is not None and (not isinstance(v,str) or not ENV.fullmatch(v))):raise HTTPException(422,"Use environment-variable names for credentials; never store secret values here.")
+  bearer_env=cfg.get("bearer_env")
+  if bearer_env is not None and (not isinstance(bearer_env,str) or not ENV.fullmatch(bearer_env)):raise HTTPException(422,"Use an environment-variable name for remote MCP bearer credentials; never store secret values here.")
  elif kind=="api":
   u=cfg.get("base_url","")
   if u:
