@@ -33,7 +33,7 @@ class RemoteSession:
     endpoint: str
     headers: dict[str, str]
     session_id: str | None = None
-    protocol_version: str = "2025-03-26"
+    protocol_version: str = ""
     tools: list[dict[str, Any]] = field(default_factory=list)
     last_error: str | None = None
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
