@@ -139,7 +139,5 @@ def test_remote_mcp_rejects_non_loopback_plain_http(monkeypatch, tmp_path):
             "enabled": True,
             "config": {"transport": "streamable_http", "endpoint": "http://example.com/mcp"},
         })
-        assert created.status_code == 201, created.text
-        response = client.post(f"/api/integrations/mcp/{created.json()['id']}/connect")
-    assert response.status_code == 422
-    assert "must use HTTPS" in response.json()["detail"]
+    assert created.status_code == 422
+    assert "must use HTTPS" in created.json()["detail"]
