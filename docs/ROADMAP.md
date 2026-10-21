@@ -106,3 +106,12 @@ A feature is complete only when API, UI controls, persistence, permission checks
 - Execution claims the approval atomically, marks it consumed after success, marks it failed after a tool error, and leaves crash-interrupted claims for startup recovery/operator review rather than replaying them.
 - API regression tests cover exact payload binding, mismatch handling, single-use behavior, and denial of unregistered shell-like tools.
 
+
+
+## MCP transport and Private Chat enforcement follow-up
+
+- Added a separate Streamable HTTP JSON-RPC transport alongside stdio MCP. It supports initialize, tool discovery/calls, status, disconnect, session IDs, optional environment-based bearer authentication, bounded request/response sizes, bounded timeouts, and redirect rejection.
+- Both transports share the operator-managed runtime endpoints and explicit confirmation for tools that are not annotated read-only. Remote MCP calls are not automatically injected into the chat planner.
+- Private Chat now filters Google/DuckDuckGo network tools from the model-visible catalog and blocks those tool names at the backend dispatch boundary, with an audit event and regression test.
+- Remaining MCP hardening: interoperability tests against multiple real servers, OAuth token refresh, arbitrary custom headers, cancellation/reconnect handling, and an OS-level sandbox for stdio child processes. These are not implied by this transport implementation.
+- API provider definitions remain configuration-only. Provider execution should be a separate opt-in capability with an explicit provider protocol, request allowlist, credential handling, public/private mode policy, timeout/response caps, audit logging, and tests before being enabled.
