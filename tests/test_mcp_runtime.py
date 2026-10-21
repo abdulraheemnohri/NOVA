@@ -72,3 +72,36 @@ def test_runtime_refuses_disabled_server(monkeypatch, tmp_path):
         assert created.status_code == 201
         response = client.post(f"/api/integrations/mcp/{created.json()['id']}/connect")
         assert response.status_code == 409
+
+
+
+def test_mcp_sandbox_off_preserves_direct_command(tmp_path):
+    from nova.mcp_sandbox import build_mcp_command
+
+    command = build_mcp_command("/usr/bin/python3", ["-u", "server.py"], tmp_path, "off")
+    assert command == ["/usr/bin/python3", "-u", "server.py"]
+
+
+def test_mcp_bwrap_mode_fails_closed_when_unavailable(tmp_path, monkeypatch):
+    import pytest
+    from nova import mcp_sandbox
+    from nova.mcp_sandbox import SandboxUnavailableError, build_mcp_command
+
+    monkeypatch.setattr(mcp_sandbox.shutil, "which", lambda _: None)
+    with pytest.raises(SandboxUnavailableError, match="bubblewrap"):
+        build_mcp_command("/usr/bin/python3", ["server.py"], tmp_path, "bwrap-readonly-root")
+
+
+def test_mcp_bwrap_command_contains_readonly_root_and_writable_workspace(tmp_path, monkeypatch):
+    from nova import mcp_sandbox
+    from nova.mcp_sandbox import build_mcp_command
+
+    monkeypatch.setattr(mcp_sandbox.sys, "platform", "linux")
+    command = build_mcp_command(
+        "/usr/bin/python3", ["server.py"], tmp_path, "bwrap-readonly-root",
+        bwrap_path="/usr/bin/bwrap",
+    )
+    assert command[0] == "/usr/bin/bwrap"
+    assert command[command.index("--ro-bind") + 1:command.index("--ro-bind") + 3] == ["/", "/"]
+    assert command[command.index("--bind") + 1:command.index("--bind") + 3] == [str(tmp_path.resolve()), str(tmp_path.resolve())]
+    assert command[-2:] == ["/usr/bin/python3", "server.py"]
