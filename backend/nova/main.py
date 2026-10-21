@@ -47,6 +47,7 @@ from nova.whatsapp import router as whatsapp_router, service as whatsapp_service
 from nova.chat_store import router as chat_store_router
 from nova.hardware_profile import router as hardware_router
 from nova.integrations import router as integrations_router
+from nova.mcp_runtime import router as mcp_runtime_router, shutdown_mcp_sessions
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
@@ -74,6 +75,7 @@ async def lifespan(application: FastAPI):
         await whatsapp_service.start()
         yield
     finally:
+        await shutdown_mcp_sessions()
         await whatsapp_service.stop()
         stop_worker()
         stop_update_worker()
@@ -152,6 +154,7 @@ app.include_router(whatsapp_router)
 app.include_router(chat_store_router)
 app.include_router(hardware_router)
 app.include_router(integrations_router)
+app.include_router(mcp_runtime_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
