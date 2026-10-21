@@ -67,7 +67,7 @@ def test_runtime_refuses_disabled_server(monkeypatch, tmp_path):
         created = client.post("/api/integrations/mcp", json={
             "name": "Disabled MCP",
             "enabled": False,
-            "config": {"transport": "stdio", "command": sys.executable, "args": ["-u", "-c", _FAKE_MCP]},
+            "config": {"transport": "stdio", "command": sys.executable, "args": ["-u", _FAKE_MCP_PATH]},
         })
         assert created.status_code == 201
         response = client.post(f"/api/integrations/mcp/{created.json()['id']}/connect")
