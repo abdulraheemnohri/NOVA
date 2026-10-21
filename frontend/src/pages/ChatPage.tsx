@@ -54,6 +54,7 @@ export default function ChatPage({apiFetch,onError,maxTokens}:{apiFetch:(url:str
    if(!r.ok)throw Error(d.detail||"Could not restore backup");
    await loadConversations();
    await loadMessages(d.id);
+   setMode(d.mode==="public"?"public":"private");
    setNotice("Backup restored. "+d.messages_restored+" messages and "+d.attachments_restored+" attachments imported.");
   }catch(e){onError(e instanceof Error?e.message:String(e))}
   finally{if(backupFileRef.current)backupFileRef.current.value=""}
@@ -87,7 +88,7 @@ export default function ChatPage({apiFetch,onError,maxTokens}:{apiFetch:(url:str
    const saved=await request("/chat/conversations/"+activeId+"/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({role:"assistant",content:answer})});
    setMessages(prev=>[...prev.filter(m=>m.id!==userMessage.id),{...userMessage,created_at:new Date().toISOString()},saved]);
    await loadConversations();if(autoSpeak)speak(answer);
- }catch(e){if(e instanceof DOMException&&e.name==="AbortError"){setNotice("Generation stopped. The model may have continued processing briefly on the backend.")}else{onError(e instanceof Error?e.message:String(e));setMessages(prev=>prev.filter(m=>m.id!==userMessage.id))}}finally{setBusy(false);controller.current=null}}
+ }catch(e){if(e instanceof DOMException&&e.name==="AbortError"){setNotice("Generation stopped. The model may have continued processing briefly on the backend.")}else{onError(e instanceof Error?e.message:String(e));setNotice("Your message was saved to local history, but the model response failed. You can retry or delete the chat.");}}finally{setBusy(false);controller.current=null}}
  function speak(text:string){if(!("speechSynthesis" in window)){setNotice("Speech synthesis is not available in this browser.");return}window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.rate=1;window.speechSynthesis.speak(u)}
  function toggleVoice(){const w=window as any;const Ctor=w.SpeechRecognition||w.webkitSpeechRecognition;if(!Ctor){setNotice("Speech recognition is unavailable. Try a supported browser or type your message.");return}if(voiceOn){recognition.current?.stop();setVoiceOn(false);return}const rec=new Ctor();recognition.current=rec;rec.lang=navigator.language||"en-US";rec.interimResults=true;rec.continuous=false;rec.onresult=(event:any)=>{let transcript="";for(let i=event.resultIndex;i<event.results.length;i++)transcript+=event.results[i][0].transcript;setMessage(prev=>prev?prev+" "+transcript:transcript)};rec.onerror=(event:any)=>{setNotice("Microphone: "+event.error);setVoiceOn(false)};rec.onend=()=>setVoiceOn(false);try{rec.start();setVoiceOn(true);setNotice("Listening. Speak clearly; review the transcript before sending.")}catch(e){setVoiceOn(false);onError(String(e))}}
  const visible=conversations.filter(c=>c.title.toLowerCase().includes(search.toLowerCase()));
