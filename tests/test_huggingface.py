@@ -18,8 +18,6 @@ def _client(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "huggingface_token_file", tmp_path / "private" / "huggingface.token")
     settings.workspace.mkdir(parents=True, exist_ok=True)
     with TestClient(app, client=("127.0.0.1", 50000)) as client:
-        token = settings.api_token_file.read_text(encoding="utf-8").strip()
-        client.headers.update({"Authorization": f"Bearer {token}"})
         yield client
 
 
