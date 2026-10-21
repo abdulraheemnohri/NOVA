@@ -223,7 +223,8 @@ def test_chat_zip_backup_can_be_restored_with_verified_attachments(monkeypatch, 
 
     _configure_temp_store(monkeypatch, tmp_path)
     with _client() as client:
-        original = client.post("/api/chat/conversations", json={"title": "Round trip"}).json()
+        original = client.post("/api/chat/conversations", json={"title": "Round trip", "mode": "public"}).json()
+        assert original["mode"] == "public"
         cid = original["id"]
         uploaded = client.post(
             f"/api/chat/conversations/{cid}/attachments",
@@ -247,7 +248,10 @@ def test_chat_zip_backup_can_be_restored_with_verified_attachments(monkeypatch, 
         restored = restored_response.json()
         assert restored["id"] != cid
         assert restored["title"] == "Round trip"
+        assert restored["mode"] == "public"
         assert restored["messages_restored"] == 1
+        restored_conversation = client.get("/api/chat/conversations").json()["conversations"]
+        assert any(item["id"] == restored["id"] and item["mode"] == "public" for item in restored_conversation)
         assert restored["attachments_restored"] == 1
 
         restored_messages = client.get(f"/api/chat/conversations/{restored['id']}/messages").json()["messages"]
