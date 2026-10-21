@@ -64,13 +64,13 @@ These are not silently marked complete; they need a distinct implementation and 
 
 1. **MCP transport support:** stdio and Streamable HTTP transports are implemented in the current follow-up. Legacy SSE-only servers, OAuth discovery/refresh, and arbitrary custom remote headers are not supported. Validate against more real servers before calling interoperability complete.
 2. **API-provider execution:** an explicit JSON-only runtime now exists for enabled providers with a configured HTTPS (or loopback HTTP) base URL and exact `allowed_paths` entries. It supports GET/POST, `none` or `bearer_env` authentication, bounded timeout/request/response sizes, rejects redirects, and audits metadata without request bodies or credentials. `header_env` and `oauth_external` remain configuration-only; provider-specific adapters, richer response formats, and real-service interoperability tests remain future work.
-4. **Process sandboxing:** configured MCP child processes run with the NOVA backend user's OS permissions; this is not a sandbox. Use a low-privilege OS account and narrow workspace scope.
-5. **Multi-user RBAC:** the current security model is one local operator bearer token, not per-user roles or account isolation.
-6. **Semantic RAG:** lexical local retrieval is available; full semantic/vector retrieval should not be described as universally enabled or production-complete.
-7. **Non-LiteRT model execution:** GGUF, ONNX, TFLite and Safetensors can be inventoried/downloaded as supported by the manager, but they are not general-purpose chat runtimes in the current architecture.
-8. **Autonomous task execution:** the task scheduler does not execute arbitrary task plans or generated shell commands. Due tasks are staged for operator review.
-9. **Real-device validation:** LiteRT-LM CLI/server compatibility, model loading, speech/OCR binaries, mobile device counters and offline smoke tests require tests on each target OS/device.
-10. **Frontend routing regression tests:** `frontend/tests/navigation.test.ts` covers navigation render branches and quick-action destinations. `frontend/tests/apiAllowlist.test.ts` covers LF/CRLF allowlist editing.
+3. **Process sandboxing:** configured MCP child processes run with the NOVA backend user's OS permissions; this is not a sandbox. Use a low-privilege OS account and narrow workspace scope.
+4. **Multi-user RBAC:** the current security model is one local operator bearer token, not per-user roles or account isolation.
+5. **Semantic RAG:** lexical local retrieval is available; full semantic/vector retrieval should not be described as universally enabled or production-complete.
+6. **Non-LiteRT model execution:** GGUF, ONNX, TFLite and Safetensors can be inventoried/downloaded as supported by the manager, but they are not general-purpose chat runtimes in the current architecture.
+7. **Autonomous task execution:** the task scheduler does not execute arbitrary task plans or generated shell commands. Due tasks are staged for operator review.
+8. **Real-device validation:** LiteRT-LM CLI/server compatibility, model loading, speech/OCR binaries, mobile device counters and offline smoke tests require tests on each target OS/device.
+9. **Frontend routing regression tests:** `frontend/tests/navigation.test.ts` covers navigation render branches and quick-action destinations. `frontend/tests/apiAllowlist.test.ts` covers LF/CRLF allowlist editing.
 
 ## Required acceptance checks for future feature work
 
