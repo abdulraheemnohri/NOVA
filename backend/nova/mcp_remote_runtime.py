@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import ipaddress
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -149,8 +150,16 @@ async def connect_remote(integration_id: str) -> dict[str, Any]:
         raise HTTPException(422, "This integration is not configured for Streamable HTTP.")
     endpoint = config.get("endpoint", "")
     parsed = urlparse(endpoint)
-    if parsed.scheme not in {"https", "http"} or not parsed.hostname:
+    if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username or parsed.password:
         raise HTTPException(422, "Invalid remote MCP endpoint.")
+    if parsed.scheme == "http":
+        hostname = parsed.hostname.lower().rstrip(".")
+        try:
+            loopback = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            loopback = hostname == "localhost"
+        if not loopback:
+            raise HTTPException(422, "Remote MCP endpoints must use HTTPS; plain HTTP is allowed only for loopback hosts.")
     headers: dict[str, str] = {}
     bearer_env = config.get("bearer_env")
     if bearer_env:
