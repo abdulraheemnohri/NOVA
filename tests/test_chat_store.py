@@ -279,3 +279,29 @@ def test_chat_import_rejects_invalid_zip_and_path_traversal(monkeypatch, tmp_pat
         assert traversal.status_code == 422
         assert client.get("/api/chat/conversations").json()["conversations"] == []
         assert not (tmp_path / "outside.txt").exists()
+
+
+def test_chat_modes_are_persisted_and_validated(monkeypatch, tmp_path):
+    _configure_temp_store(monkeypatch, tmp_path)
+    with _client() as client:
+        private = client.post("/api/chat/conversations", json={"title": "Private"} )
+        assert private.status_code == 201, private.text
+        assert private.json()["mode"] == "private"
+
+        public = client.post("/api/chat/conversations", json={"title": "Public", "mode": "public"})
+        assert public.status_code == 201, public.text
+        public_id = public.json()["id"]
+        assert public.json()["mode"] == "public"
+
+        listed = client.get("/api/chat/conversations").json()["conversations"]
+        assert {item["title"]: item["mode"] for item in listed} == {
+            "Private": "private",
+            "Public": "public",
+        }
+
+        changed = client.patch(f"/api/chat/conversations/{public_id}", json={"mode": "private"})
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["mode"] == "private"
+
+        invalid = client.post("/api/chat/conversations", json={"title": "Invalid", "mode": "hybrid"})
+        assert invalid.status_code == 422
