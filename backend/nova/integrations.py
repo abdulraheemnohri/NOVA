@@ -80,7 +80,7 @@ def _create(kind,r):
  try:
   c.execute("INSERT INTO integration_configs VALUES(?,?,?,?,?,?,?)",(i,kind,r.name.strip(),json.dumps(r.config),int(r.enabled),n,n));c.commit();row=c.execute("SELECT * FROM integration_configs WHERE id=?",(i,)).fetchone()
  finally:c.close()
- append_audit(settings.audit_path,{"event":"integration.created","kind":kind,"id":i,"enabled":r.enabled});return _pub(row)
+ append_audit(settings.audit_path,"integration.created",{"kind":kind,"id":i,"enabled":r.enabled});return _pub(row)
 def _update(kind,i,r):
  c=_db()
  try:
@@ -90,14 +90,14 @@ def _update(kind,i,r):
   enabled=int(r.enabled) if r.enabled is not None else old["enabled"]
   c.execute("UPDATE integration_configs SET name=?,config_json=?,enabled=?,updated_at=? WHERE id=?",(name,json.dumps(cfg),enabled,_now(),i));c.commit();row=c.execute("SELECT * FROM integration_configs WHERE id=?",(i,)).fetchone()
  finally:c.close()
- append_audit(settings.audit_path,{"event":"integration.updated","kind":kind,"id":i,"enabled":bool(enabled)});return _pub(row)
+ append_audit(settings.audit_path,"integration.updated",{"kind":kind,"id":i,"enabled":bool(enabled)});return _pub(row)
 def _delete(kind,i):
  c=_db()
  try:
   cur=c.execute("DELETE FROM integration_configs WHERE id=? AND kind=?",(i,kind));c.commit()
   if not cur.rowcount:raise HTTPException(404,"Integration not found.")
  finally:c.close()
- append_audit(settings.audit_path,{"event":"integration.deleted","kind":kind,"id":i});return {"deleted":True,"id":i}
+ append_audit(settings.audit_path,"integration.deleted",{"kind":kind,"id":i});return {"deleted":True,"id":i}
 for _kind,_route in (("mcp","mcp"),("api","apis"),("online_tool","online-tools")):
  def _install(kind,route):
   @router.get("/"+route)
