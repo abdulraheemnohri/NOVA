@@ -8,6 +8,10 @@ NOVA includes an opt-in Meta WhatsApp Agent Platform integration. It is not What
 
 The WhatsApp responder uses the local LiteRT-LM endpoint and defaults to model ID `gemma-4-e4b`. Confirm that the installed Gemma 4-E4B artifact is compatible and that this exact model ID appears in `GET /v1/models`; otherwise set `NOVA_WHATSAPP_AGENT_MODEL_ID` to the exact advertised ID. NOVA does not download weights or fall back to a cloud model. Set the variable in `.env`/backend environment before launching NOVA. Text only; media support is not enabled.
 
+## Project coverage audit
+
+See [the frontend/backend coverage audit](docs/PROJECT_COVERAGE_AUDIT.md) for the current page inventory, API/module map, known limitations, and release acceptance checklist. The audit distinguishes implemented configuration from executable integrations and does not claim production readiness.
+
 ## Status
 
 NOVA is an active engineering project, not yet a feature-complete production release. CI covers the backend tests and frontend tests/build, but target-machine LiteRT-LM compatibility, optional speech binaries/models, and security smoke tests still require validation on the actual host.
