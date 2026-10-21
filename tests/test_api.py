@@ -507,3 +507,39 @@ def test_api_rejects_non_loopback_peers_even_with_forwarded_headers():
         response = client.get("/api/health", headers={"X-Forwarded-For": "127.0.0.1"})
     assert response.status_code == 403
     assert "local-only" in response.json()["detail"]
+
+
+def test_private_chat_blocks_network_tools_at_backend_boundary(monkeypatch, tmp_path):
+    import json
+
+    _configure_temp_store(monkeypatch, tmp_path)
+    captured = []
+    calls = []
+
+    def fake_chat(message, max_tokens, model_id=None, temperature=0.2):
+        captured.append(message)
+        return '{"nova_tool_call":{"name":"web_search","input":{"query":"private query"}}}'
+
+    monkeypatch.setattr("nova.main.chat", fake_chat)
+    monkeypatch.setattr("nova.main.active_model_id", lambda: "test-local-model")
+    monkeypatch.setattr("nova.main._model_enabled", lambda model_id: True)
+
+    def forbidden_execute(req):
+        calls.append(req.name)
+        raise AssertionError("Private Chat must not execute network tools")
+
+    monkeypatch.setattr("nova.main.execute_agent_tool", forbidden_execute)
+
+    with _client() as client:
+        response = client.post("/api/chat", json={
+            "message": "Find something privately",
+            "mode": "private",
+        })
+
+    assert response.status_code == 200, response.text
+    assert "Private Chat blocked this online tool" in response.json()["answer"]
+    assert calls == []
+    assert "PRIVATE CHAT MODE: Offline-only" in captured[0]
+    assert '"web_search"' not in captured[0]
+    audit = [json.loads(line) for line in settings.audit_path.read_text(encoding="utf-8").splitlines()]
+    assert any(item["event_type"] == "chat.private_network_tool_blocked" for item in audit)
