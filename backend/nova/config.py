@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -11,6 +12,9 @@ class Settings(BaseSettings):
     litert_base_url: str = "http://127.0.0.1:9379/v1"
     # Limits concurrent task-scoped runtimes on constrained devices: mobile=1, balanced=2, performance=3.
     runtime_profile: str = "balanced"
+    # Optional Linux bubblewrap write-containment for local MCP stdio children.
+    # This is not a complete security sandbox; default remains off for compatibility.
+    mcp_sandbox_mode: Literal["off", "bwrap-readonly-root"] = "off"
     litert_model: str = "local-model"
     # Exact server argv, configured by the operator in .env; wrapper never invokes a shell.
     litert_lm_command: str = ""
