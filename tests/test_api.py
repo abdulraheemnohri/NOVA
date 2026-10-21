@@ -502,3 +502,8 @@ def test_approved_tool_execution_rejects_unregistered_tools(monkeypatch, tmp_pat
         })
     assert created.status_code == 403
 
+def test_api_rejects_non_loopback_peers_even_with_forwarded_headers():
+    with TestClient(app, client=("192.0.2.10", 50000)) as client:
+        response = client.get("/api/health", headers={"X-Forwarded-For": "127.0.0.1"})
+    assert response.status_code == 403
+    assert "local-only" in response.json()["detail"]
