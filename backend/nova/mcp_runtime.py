@@ -15,6 +15,7 @@ from nova.audit import append_audit
 from nova.config import settings
 from nova.integrations import _list
 from nova import mcp_remote_runtime as remote_mcp
+from nova.mcp_sandbox import build_mcp_command
 
 router = APIRouter(prefix="/api/integrations/mcp", tags=["mcp-runtime"])
 MAX_LINE_BYTES = 1_000_000
@@ -172,8 +173,11 @@ async def connect_mcp(integration_id: str):
         if old and old.process.returncode is None:
             return _public(old)
         try:
+            launch_command = build_mcp_command(
+                executable, args, settings.workspace.resolve(), settings.mcp_sandbox_mode
+            )
             process = await asyncio.create_subprocess_exec(
-                executable, *args,
+                *launch_command,
                 cwd=str(settings.workspace.resolve()),
                 env=env,
                 stdin=asyncio.subprocess.PIPE,
