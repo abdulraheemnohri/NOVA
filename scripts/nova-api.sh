@@ -2,7 +2,6 @@
 set -Eeuo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-TOKEN_FILE="${NOVA_API_TOKEN_FILE:-$ROOT/data/api.token}"
 METHOD="${1:-GET}"
 API_PATH="${2:-}"
 BODY="${3:-}"
@@ -12,12 +11,6 @@ if [[ -z "$API_PATH" || "$API_PATH" != /api/* ]]; then
   echo "Only /api/* endpoints are allowed." >&2
   exit 2
 fi
-if [[ ! -r "$TOKEN_FILE" ]]; then
-  echo "NOVA API token file is missing or unreadable: $TOKEN_FILE" >&2
-  echo "Start NOVA once to generate it, or set NOVA_API_TOKEN_FILE." >&2
-  exit 2
-fi
-
 METHOD="${METHOD^^}"
 case "$METHOD" in
   GET|POST|PUT|DELETE) ;;
@@ -28,7 +21,7 @@ if [[ "$BODY" == "-" ]]; then
   BODY="$(cat)"
 fi
 
-NOVA_API_TOKEN="$(<"$TOKEN_FILE")" python3 - "$METHOD" "$API_PATH" "$BODY" <<'PY'
+python3 - "$METHOD" "$API_PATH" "$BODY" <<'PY'
 import json
 import os
 import sys
@@ -37,7 +30,6 @@ import urllib.parse
 import urllib.request
 
 method, api_path, body_text = sys.argv[1:4]
-token = os.environ.get("NOVA_API_TOKEN", "").strip()
 base = os.environ.get("NOVA_API_BASE", "http://127.0.0.1:8000").rstrip("/")
 parsed_base = urllib.parse.urlsplit(base)
 if (
@@ -60,11 +52,7 @@ if (
 ):
     print("Only normalized /api/* paths are allowed.", file=sys.stderr)
     raise SystemExit(2)
-if not token:
-    print("NOVA API token file is empty.", file=sys.stderr)
-    raise SystemExit(2)
-
-headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+headers = {"Accept": "application/json"}
 data = None
 if method in {"POST", "PUT"}:
     if body_text:

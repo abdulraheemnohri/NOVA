@@ -26,14 +26,11 @@ def test_unknown_approval_is_denied():
 
 @contextmanager
 def _client():
-    with TestClient(app) as client:
-        token = settings.api_token_file.read_text(encoding="utf-8").strip()
-        client.headers.update({"Authorization": f"Bearer {token}"})
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         yield client
 
 
 def _configure_temp_store(monkeypatch, tmp_path):
-    monkeypatch.setattr(settings, "api_token_file", tmp_path / "api.token")
     monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
     monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
     monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
@@ -162,29 +159,8 @@ def test_rollback_requires_matching_approval(monkeypatch, tmp_path):
         assert (settings.workspace / "rollback-check.txt").read_text(encoding="utf-8") == "created"
 
 
-def test_protected_api_rejects_missing_token():
-    with TestClient(app) as client:
-        response = client.get("/api/approvals")
-    assert response.status_code == 401
-
-
-def test_generated_token_is_private(monkeypatch, tmp_path):
-    _configure_temp_store(monkeypatch, tmp_path)
-    with _client():
-        pass
-    import os
-    if os.name == "posix":
-        assert settings.api_token_file.stat().st_mode & 0o777 == 0o600
-
-
-def test_protected_api_rejects_invalid_token():
-    with TestClient(app) as client:
-        response = client.get("/api/approvals", headers={"Authorization": "Bearer definitely-not-the-token"})
-    assert response.status_code == 401
-
-
 def test_health_is_available_without_token():
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         response = client.get("/api/health")
     assert response.status_code == 200
 
@@ -400,8 +376,6 @@ def test_chat_can_explicitly_invoke_an_active_read_only_skill(monkeypatch, tmp_p
 
 def test_lifespan_initializes_services_and_stops_workers(monkeypatch, tmp_path):
     import nova.main as main
-
-    monkeypatch.setattr(settings, "api_token_file", tmp_path / "data" / "api.token")
     monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
     monkeypatch.setattr(settings, "database_path", tmp_path / "nova.sqlite3")
     monkeypatch.setattr(settings, "audit_path", tmp_path / "audit.jsonl")
@@ -418,10 +392,8 @@ def test_lifespan_initializes_services_and_stops_workers(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "stop_worker", lambda: calls.append("scheduler_stop"))
     monkeypatch.setattr(main, "stop_update_worker", lambda: calls.append("updater_stop"))
 
-    with TestClient(app):
-        assert settings.api_token_file.is_file()
+    with TestClient(app, client=("127.0.0.1", 50000)):
         assert settings.workspace.is_dir()
-        assert settings.api_token_file.stat().st_mode & 0o777 == 0o600
         assert calls == [
             "approval_recovery",
             "autonomy_recovery",
@@ -530,3 +502,8 @@ def test_approved_tool_execution_rejects_unregistered_tools(monkeypatch, tmp_pat
         })
     assert created.status_code == 403
 
+def test_api_rejects_non_loopback_peers_even_with_forwarded_headers():
+    with TestClient(app, client=("192.0.2.10", 50000)) as client:
+        response = client.get("/api/health", headers={"X-Forwarded-For": "127.0.0.1"})
+    assert response.status_code == 403
+    assert "local-only" in response.json()["detail"]

@@ -5,8 +5,7 @@ This guide explains the visible Settings page, which values are editable, which 
 ## 1. Quick safety rules
 
 - Keep the API bound to `127.0.0.1`; do not expose it directly to a LAN or the public internet.
-- The first-run API token is stored in `data/api.token` (or the path selected by `NOVA_API_TOKEN_FILE`). Treat it as a password.
-- Never commit a real `.env`, Hugging Face token, API token, or private model weights.
+- Never commit a real `.env`, Hugging Face token, or private model weights.
 - NOVA does not execute code from downloaded model repositories and does not silently fall back to cloud chat, Ollama, or llama.cpp.
 - A model listed by `/v1/models` is not proof that its weights are loaded or that inference succeeds. Run a short test prompt and inspect Diagnostics/runtime logs.
 - Model activation is a selection/availability flag; it does not itself load or unload weights or stop a LiteRT-LM process.
@@ -95,7 +94,6 @@ The repository's `.env.example` lists the current environment variables and safe
 | `NOVA_WORKSPACE` | Workspace root for files handled by NOVA. |
 | `NOVA_DATABASE_PATH` | Local SQLite database path. |
 | `NOVA_AUDIT_PATH` | Audit JSONL file path. |
-| `NOVA_API_TOKEN_FILE` | Private local API bearer-token file path. |
 | `NOVA_LITERT_BASE_URL` | Local LiteRT-LM-compatible OpenAI-style API base URL; default is `http://127.0.0.1:9379/v1`. |
 | `NOVA_LITERT_MODEL` | Configured model ID expected by the local endpoint. |
 | `NOVA_LITERT_CHAT_TIMEOUT_SECONDS` | Chat request timeout (5–600 seconds; default 120). |
@@ -141,7 +139,7 @@ For the complete current list, comments and example paths, consult [`.env.exampl
 
 ### Audit/security warning
 
-Stop risky operations, review the local audit file and use Diagnostics to verify the chain. Do not delete or edit audit records to silence a warning. Keep API and Hub tokens private.
+Stop risky operations, review the local audit file and use Diagnostics to verify the chain. Do not delete or edit audit records to silence a warning. Keep Hub tokens private.
 
 ## 6. Useful references
 

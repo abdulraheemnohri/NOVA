@@ -52,18 +52,6 @@ async def lifespan(application: FastAPI):
     """Initialize persistent services once per process and stop workers on shutdown."""
     application.state.rate_limiter = PersistentRateLimiter(lambda: settings.database_path)
     settings.workspace.mkdir(parents=True, exist_ok=True)
-    settings.api_token_file.parent.mkdir(parents=True, exist_ok=True)
-    if not settings.api_token_file.exists():
-        token = secrets.token_urlsafe(32)
-        fd = os.open(settings.api_token_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(token + "\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-    try:
-        os.chmod(settings.api_token_file, 0o600)
-    except OSError:
-        pass
     con = _db()
     con.close()
     # A process may stop after a side effect but before recording completion.
@@ -99,28 +87,25 @@ app.state.rate_limiter = PersistentRateLimiter(lambda: settings.database_path)
 
 
 @app.middleware("http")
-async def require_local_api_token(request: Request, call_next):
-    # Health is intentionally public for local process supervision; all other API routes
-    # require the generated, file-backed bearer token.
-    if request.url.path == "/api/health" or not request.url.path.startswith("/api/"):
-        return await call_next(request)
-    try:
-        expected = settings.api_token_file.read_text(encoding="utf-8").strip()
-    except OSError:
-        expected = ""
-    auth = request.headers.get("authorization", "")
-    supplied = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
-    if not expected or not supplied or not hmac.compare_digest(supplied, expected):
-        return JSONResponse(status_code=401, content={"detail": "Local API token required or invalid."})
-    # Fail closed before any API handler can mutate state if the audit chain is damaged.
-    # Keep health and the explicit verification endpoint available for diagnosis.
-    if request.url.path not in {"/api/health", "/api/audit/verify"}:
-        valid, _ = verify_audit(settings.audit_path)
-        if not valid:
-            return JSONResponse(
-                status_code=503,
-                content={"detail": "Audit integrity failure; API actions are disabled until an operator investigates."},
-            )
+async def require_loopback_api(request: Request, call_next):
+    """No-login mode is deliberately local-only: refuse API calls from non-loopback peers."""
+    if request.url.path.startswith("/api/"):
+        peer = request.client.host if request.client else ""
+        try:
+            import ipaddress
+            is_loopback = ipaddress.ip_address(peer.split("%", 1)[0]).is_loopback
+        except ValueError:
+            is_loopback = False
+        if not is_loopback:
+            return JSONResponse(status_code=403, content={"detail": "NOVA API is local-only; connect from this device over loopback."})
+        # Fail closed before any API handler can mutate state if the audit chain is damaged.
+        if request.url.path not in {"/api/health", "/api/audit/verify"}:
+            valid, _ = verify_audit(settings.audit_path)
+            if not valid:
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "Audit integrity failure; API actions are disabled until an operator investigates."},
+                )
     return await call_next(request)
 
 

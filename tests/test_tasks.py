@@ -12,9 +12,8 @@ def _client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
     token_path = tmp_path / "api.token"
     token_path.write_text("test-token")
-    monkeypatch.setattr(settings, "api_token_file", token_path)
     append_audit(settings.audit_path, "test.start", {})
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         yield client, {"Authorization": "Bearer test-token"}
 
 def test_task_queue_lifecycle(tmp_path, monkeypatch):

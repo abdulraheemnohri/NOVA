@@ -17,10 +17,9 @@ def _client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "scheduler_interval_seconds", 15)
     token_path = tmp_path / "api.token"
     token_path.write_text("scheduler-test-token", encoding="utf-8")
-    monkeypatch.setattr(settings, "api_token_file", token_path)
     append_audit(settings.audit_path, "test.start", {})
-    with TestClient(app) as client:
-        yield client, {"Authorization": "Bearer scheduler-test-token"}
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
+        yield client, {}
 
 
 def test_run_once_moves_due_task_to_planned_without_execution(tmp_path, monkeypatch):
@@ -55,10 +54,10 @@ def test_scheduler_leaves_future_tasks_queued_and_reports_disabled_worker(tmp_pa
         assert status.json()["due_tasks_waiting"] == 0
 
 
-def test_scheduler_requires_api_token(tmp_path, monkeypatch):
+def test_scheduler_is_available_from_loopback(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as (client, headers):
         response = client.get("/api/scheduler/status")
-        assert response.status_code == 401
+        assert response.status_code == 200
 
 
 
