@@ -10,7 +10,7 @@ The WhatsApp responder uses the local LiteRT-LM endpoint and defaults to model I
 
 ## Project coverage audit
 
-See the [frontend/backend coverage audit](docs/PROJECT_COVERAGE_AUDIT.md) for the page inventory, API/module map and known limitations. See the [final project review and release gates](docs/FINAL_RELEASE_AUDIT.md) for the implementation inventory, security checklist, real-host validation requirements and release decision. These audits distinguish implemented functionality from capabilities that still need target-device validation; they do not claim production readiness.
+See the [frontend/backend coverage audit](docs/PROJECT_COVERAGE_AUDIT.md) for the page inventory, API/module map and known limitations. See the [final project review and release gates](docs/FINAL_RELEASE_AUDIT.md) for the implementation inventory, security checklist, real-host validation requirements and release decision. See the [remaining features, functions, settings and acceptance matrix](docs/REMAINING_FEATURES_AND_SETTINGS.md) for the consolidated roadmap and environment-setting inventory. These audits distinguish implemented functionality from capabilities that still need target-device validation; they do not claim production readiness.
 
 ## Status
 
