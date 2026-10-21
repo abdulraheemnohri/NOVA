@@ -46,6 +46,7 @@ from nova.updates import router as updates_router, start_worker as start_update_
 from nova.whatsapp import router as whatsapp_router, service as whatsapp_service
 from nova.chat_store import router as chat_store_router
 from nova.hardware_profile import router as hardware_router
+from nova.integrations import router as integrations_router
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
@@ -150,6 +151,7 @@ app.include_router(updates_router)
 app.include_router(whatsapp_router)
 app.include_router(chat_store_router)
 app.include_router(hardware_router)
+app.include_router(integrations_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
