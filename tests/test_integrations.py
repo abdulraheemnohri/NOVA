@@ -1,7 +1,11 @@
 from contextlib import contextmanager
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fastapi.testclient import TestClient
 from nova.config import settings
 from nova.main import app
+import nova.main as main_module
 
 @contextmanager
 def _client():
@@ -56,11 +60,6 @@ def test_catalog_labels_templates_as_not_connected():
     assert any(x["id"] == "duckduckgo-search" for x in data["online_tools"])
     assert any("templates" in note for note in data["notes"])
 
-
-import json
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import nova.main as main_module
 
 
 class _ProviderHandler(BaseHTTPRequestHandler):
