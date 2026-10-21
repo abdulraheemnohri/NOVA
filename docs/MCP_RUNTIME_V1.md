@@ -1,31 +1,9 @@
-# MCP Runtime V1
+# MCP Runtime
 
-NOVA can launch **explicitly enabled local stdio MCP servers** from the Integrations workspace. It starts the configured executable with `asyncio.create_subprocess_exec` (never a shell), performs MCP initialization, discovers tools, and exposes an operator-controlled tool-call UI.
+NOVA supports explicit, operator-managed MCP connections over **stdio** and **Streamable HTTP**. Both transports share the same connect/status/tool-discovery/call/disconnect API and require explicit confirmation for tools that are not annotated read-only.
 
-## Workflow
+See [MCP Streamable HTTP and stdio runtime guide](MCP_STREAMABLE_HTTP.md) for setup, API routes, limits, authentication, security boundaries, and known limitations.
 
-1. Add a stdio server definition in Integrations and review its command, arguments, environment-variable references, and filesystem scope.
-2. Enable the configuration.
-3. Click **Connect** to start the child process. The server is not started automatically on application launch.
-4. Review discovered tool names and descriptions.
-5. Read-only tools marked with MCP `annotations.readOnlyHint=true` can be invoked directly. All other tools require checking the explicit side-effect confirmation.
-6. Disconnect when finished. NOVA also terminates managed MCP child processes during graceful application shutdown.
+The runtime does not automatically start configured servers, add MCP tools to the model's chat tool catalog, or bypass the local tool policy. MCP child processes are not sandboxed and run with the NOVA backend user's OS permissions. Remote endpoints use HTTPS except loopback development endpoints; bearer secrets are referenced through environment variables and are never persisted in integration configuration.
 
-## API
-
-- `POST /api/integrations/mcp/{id}/connect`
-- `GET /api/integrations/mcp/{id}/status`
-- `GET /api/integrations/mcp/{id}/tools`
-- `POST /api/integrations/mcp/{id}/tools/{tool_name}/call` with `{"arguments": {}, "confirm_side_effects": false}`
-- `POST /api/integrations/mcp/{id}/disconnect`
-
-Tool calls are JSON-RPC requests to the selected process. Each request has a 30-second timeout, request payloads are bounded, tool discovery is capped, and lifecycle/tool events are written to NOVA's audit chain. Stderr output is discarded rather than retained.
-
-## Security boundaries and limitations
-
-- MCP servers are arbitrary programs and run with the operating-system permissions of the NOVA backend user. Connect only commands and packages you trust. Process execution is not a sandbox.
-- Use a dedicated low-privilege OS account, narrow filesystem/database scopes, and a reviewed command/argument list. Do not point a filesystem MCP server at the entire home directory or secrets.
-- The browser-facing NOVA API remains loopback-only. Do not expose it to a LAN or the public internet without authentication and a separate security review.
-- The runtime currently supports **stdio only**. Remote Streamable HTTP MCP connections are saved as configuration but return HTTP 501 at runtime.
-- Tool annotations are server-supplied metadata, not proof that a tool is safe. The explicit confirmation is an operator safeguard, not a security sandbox.
-- Arbitrary third-party API-provider execution and direct tool invocation from the chat planner are not yet implemented.
+API-provider records in Integrations remain configuration-only. This runtime does not add cloud inference or alter the LiteRT-LM-only chat inference path.

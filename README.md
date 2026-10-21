@@ -108,3 +108,6 @@ Read `docs/SECURITY.md`, `docs/ARCHITECTURE.md`, `docs/OFFLINE_DEPLOYMENT.md`, a
 
 ## Optional WhatsApp Agent Platform (text-only V1)
 NOVA supports Meta's WhatsApp Agent Platform at `https://api.whatsapp.com/agent/v1`, with replies generated only by the configured local LiteRT-LM model (Gemma 4-E4B by default). This is **not** WhatsApp Web QR pairing and not the WhatsApp Business Cloud API. Configure the Agent API key and exact allowed creator sender ID in the **WhatsApp Agent Platform** page. NOVA never trusts the first inbound sender automatically. The integration is opt-in, stores its key in a local owner-only state file, and has no cloud inference fallback. See [WhatsApp Agent Platform setup](docs/WHATSAPP_SETUP.md) for configuration, privacy, troubleshooting, and V1 limitations.
+
+
+MCP transport setup and security limits: [MCP Runtime Guide](docs/MCP_STREAMABLE_HTTP.md).
