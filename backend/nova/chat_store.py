@@ -387,6 +387,9 @@ async def import_chat_backup(file: UploadFile = File(...)):
             title = source_conversation.get("title")
             if not isinstance(title, str) or not title.strip() or len(title) > 120:
                 raise HTTPException(422, "Backup conversation title is invalid.")
+            mode = source_conversation.get("mode", "private")
+            if mode not in {"private", "public"}:
+                raise HTTPException(422, "Backup conversation mode is invalid.")
 
             attachment_map: dict[str, str] = {}
             restored_uploads: list[dict[str, Any]] = []
@@ -451,8 +454,8 @@ async def import_chat_backup(file: UploadFile = File(...)):
                 ))
             now = _now()
             conversation_id = str(uuid.uuid4())
-            con.execute("INSERT INTO chat_conversations(id,title,archived,created_at,updated_at) VALUES(?,?,?,?,?)",
-                        (conversation_id, title.strip(), 0, now, now))
+            con.execute("INSERT INTO chat_conversations(id,title,archived,created_at,updated_at,mode) VALUES(?,?,?,?,?,?)",
+                        (conversation_id, title.strip(), 0, now, now, mode))
             for attachment in restored_uploads:
                 con.execute(
                     "INSERT INTO chat_uploads(id,conversation_id,original_name,stored_name,content_type,size_bytes,sha256,extracted_text,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
@@ -466,7 +469,7 @@ async def import_chat_backup(file: UploadFile = File(...)):
                     (message_id, conversation_id, role, content, refs_json, created_at),
                 )
             con.commit()
-            return {"id": conversation_id, "title": title.strip(), "messages_restored": len(restored_messages),
+            return {"id": conversation_id, "title": title.strip(), "mode": mode, "messages_restored": len(restored_messages),
                     "attachments_restored": len(restored_uploads), "archived": False}
     except HTTPException:
         con.rollback()
