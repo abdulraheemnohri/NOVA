@@ -126,3 +126,12 @@ The device profile endpoint reads host RAM from Linux `/proc/meminfo` or Windows
 ## Model compatibility preflight
 
 The read-only `GET /api/models/preflight/{model_id}` endpoint checks activation state, chat-runtime format eligibility, local artifact presence, registered SHA-256 integrity, and advisory available-memory guidance. It returns explicit blockers and warnings. It does not download, activate, load, or execute artifacts. A passing preflight is not proof that the installed LiteRT-LM build can load a particular model; verify that on the target device.
+
+
+## On-demand runtime lifecycle controller
+
+NOVA's task-scoped Whisper, Piper, FFmpeg and Tesseract invocations use the allowlisted runtime lifecycle manager in `backend/nova/runtime_lifecycle.py`. It validates the executable against a fixed runtime ID, rejects shell execution, enforces bounded timeouts, tracks start/stop/failure timestamps and limits concurrent managed tasks. `GET /api/runtimes/lifecycle` reports active tasks and recent event metadata without command arguments, prompt text or file contents. Task executables run only when a corresponding task endpoint is called and exit after the task; no optional task runtime is kept resident while idle.
+
+Configure `NOVA_RUNTIME_PROFILE=mobile` for one managed runtime at a time, `balanced` for two, or `performance` for three. The mobile Debian installer selects the mobile profile. LiteRT-LM is the primary chat service and remains separate; NOVA never silently switches chat inference to an optional runtime. The model may request only registered task capabilities; it cannot launch arbitrary executables or shell commands.
+
+For Android phones running Debian, use [Mobile Debian installation](MOBILE_DEBIAN.md). The default installer installs core NOVA plus FFmpeg/Tesseract/Pillow. Add `--with-litert-lm`, `--with-whisper-cpp`, `--with-piper`, or `--with-onnx` only for the task capabilities you need; `--all-runtimes` installs all supported optional tools but does not download model weights or voice files.

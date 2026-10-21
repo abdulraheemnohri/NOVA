@@ -188,3 +188,28 @@ The Self-Improvement Lab provides an ordered workflow builder for active skills.
 - When enabled, the model can request an installation for supported optional runtimes; this only creates a pending request from a fixed allowlist. A human must approve and explicitly execute it.
 - AI runtime configuration changes are limited to the task-runtime switches `whisper_enabled`, `piper_enabled`, `ocr_enabled`, `onnx_runtime_enabled`, and `local_retrieval_enabled`. Model hub/download permissions, network policy, write approvals, authentication, project configuration, and AI capability settings remain human-only.
 - `ai_project_settings_access` is always returned as `false`; it is not accepted by the update schema. These boundaries are enforced server-side, not merely hidden in the UI.
+
+
+## Google web search
+
+- `GET /api/web-search?q=<query>&limit=5`: performs a bounded Google search using the mobile Google search URL parameters requested for NOVA. Query length is limited to 400 characters and result count to 1–10.
+- The registered `web_search` agent tool accepts exactly `{"query":"..." }` and returns result titles, external URLs, and the Google search URL.
+- Google may block or change its HTML layout. In that case NOVA returns a safe `link_only` or `unavailable` result with a direct Google search URL rather than pretending results were retrieved.
+- Search results are untrusted evidence. NOVA does not automatically open result URLs, run downloaded code, or follow instructions contained in pages. Verify sources before relying on them.
+- Web search requires internet connectivity. It does not enable arbitrary URL fetching, browser automation, or remote model inference.
+
+
+## DuckDuckGo search and online AI directory
+
+- `GET /api/duckduckgo-search?q=<query>&limit=5`: performs a bounded search using DuckDuckGo's HTML search endpoint and returns a direct link using `https://duckduckgo.com/?q=...`; the UI also includes the `https://duckduckgo.com/search` link.
+- The registered `duckduckgo_search` agent tool accepts a query up to 400 characters. Result count is limited to 1–10, and HTTP requests have bounded timeouts and response size.
+- If DuckDuckGo blocks the request or changes its HTML, NOVA returns `unavailable` or `link_only` with the direct search URL. HTML parsing is best-effort, not a guaranteed provider API.
+- The online AI directory is a static frontend list of official website links. It does not call a provider API or require API keys.
+- These are external online services, not NOVA-managed model runtimes. Free-tier access, regional availability, account requirements, models and limits can change. NOVA never automatically forwards local chat content to these services. Opening an external site and sharing content are user actions.
+- Treat search results and online service responses as untrusted. Verify sources and never send secrets or credentials to external services.
+
+## Online AI tools: browser-only / no provider APIs
+
+The online AI directory is a launchpad to public websites only. NOVA must not call online AI provider APIs, use provider SDKs, request provider API keys, automate provider logins, or forward local conversation content to those providers. The frontend directory is a static list and does not call a directory API. Online AI use begins only when the user opens a provider website and chooses what to share.
+
+The directory includes Duck.ai, ChatGPT, Gemini, Claude, Perplexity, HuggingChat, Microsoft Copilot, Phind, Grok, DeepSeek Chat, Qwen Chat, Mistral Le Chat, Meta AI and Poe. Listings are free-access/free-tier candidates, not a guarantee of unlimited free usage; regional access, login requirements and limits can change.

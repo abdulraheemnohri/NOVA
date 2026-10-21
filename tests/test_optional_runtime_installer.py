@@ -14,7 +14,7 @@ def test_litert_and_piper_install_is_opt_in_and_never_starts_a_runtime(monkeypat
     monkeypatch.setattr(installer, "run", lambda command, **kwargs: commands.append(command))
 
     result = installer.install_selected(
-        litert_lm=True, piper=True, whisper_cpp=False, whisper_tag=None, dry_run=False
+        litert_lm=True, piper=True, whisper_cpp=False, whisper_tag=None, jobs=2, dry_run=False
     )
 
     assert result == 0
@@ -30,7 +30,7 @@ def test_whisper_build_requires_an_explicit_pinned_tag(tmp_path: Path, monkeypat
     monkeypatch.setattr(installer, "WHISPER_SOURCE", tmp_path / "tools" / "whisper.cpp")
 
     result = installer.install_selected(
-        litert_lm=False, piper=False, whisper_cpp=True, whisper_tag=None, dry_run=True
+        litert_lm=False, piper=False, whisper_cpp=True, whisper_tag=None, jobs=2, dry_run=True
     )
 
     assert result == 2
@@ -44,7 +44,7 @@ def test_whisper_build_dry_run_uses_explicit_tag_and_does_not_clone(monkeypatch,
     monkeypatch.setattr(installer, "run", lambda command, **kwargs: commands.append(command))
 
     result = installer.install_selected(
-        litert_lm=False, piper=False, whisper_cpp=True, whisper_tag="v1.7.6", dry_run=True
+        litert_lm=False, piper=False, whisper_cpp=True, whisper_tag="v1.7.6", jobs=2, dry_run=True
     )
 
     assert result == 0
