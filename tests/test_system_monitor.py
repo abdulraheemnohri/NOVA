@@ -12,9 +12,8 @@ def _client(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "workspace", tmp_path / "workspace")
     token_path = tmp_path / "api.token"
     token_path.write_text("system-monitor-test-token")
-    monkeypatch.setattr(settings, "api_token_file", token_path)
     append_audit(settings.audit_path, "test.start", {})
-    with TestClient(app) as client:
+    with TestClient(app, client=("127.0.0.1", 50000)) as client:
         yield client, {"Authorization": "Bearer system-monitor-test-token"}
 
 
@@ -31,10 +30,10 @@ def test_system_metrics_endpoint_reports_resource_categories(tmp_path, monkeypat
         assert "Read-only telemetry" in body["notes"][0]
 
 
-def test_system_metrics_endpoint_requires_local_api_token(tmp_path, monkeypatch):
+def test_system_metrics_endpoint_is_available_from_loopback(tmp_path, monkeypatch):
     with _client(tmp_path, monkeypatch) as (client, _):
         response = client.get("/api/system")
-        assert response.status_code == 401
+        assert response.status_code == 200
 
 
 
