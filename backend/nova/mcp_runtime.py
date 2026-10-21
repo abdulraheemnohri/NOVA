@@ -15,7 +15,7 @@ from nova.audit import append_audit
 from nova.config import settings
 from nova.integrations import _list
 from nova import mcp_remote_runtime as remote_mcp
-from nova.mcp_sandbox import build_mcp_command
+from nova.mcp_sandbox import SandboxUnavailableError, build_mcp_command
 
 router = APIRouter(prefix="/api/integrations/mcp", tags=["mcp-runtime"])
 MAX_LINE_BYTES = 1_000_000
@@ -185,7 +185,7 @@ async def connect_mcp(integration_id: str):
                 stderr=asyncio.subprocess.PIPE,
                 limit=MAX_LINE_BYTES + 1,
             )
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError, SandboxUnavailableError) as exc:
             raise HTTPException(422, f"Could not start MCP server ({type(exc).__name__}).") from exc
         session = Session(integration_id, process, asyncio.create_task(asyncio.sleep(0)))
         session.reader_task = asyncio.create_task(_reader(session))
