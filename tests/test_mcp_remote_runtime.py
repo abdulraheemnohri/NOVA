@@ -129,3 +129,17 @@ def test_remote_mcp_bearer_secret_is_referenced_not_stored(monkeypatch, tmp_path
             },
         })
     assert invalid.status_code == 422
+
+
+def test_remote_mcp_rejects_non_loopback_plain_http(monkeypatch, tmp_path):
+    _temp(monkeypatch, tmp_path)
+    with _client() as client:
+        created = client.post("/api/integrations/mcp", json={
+            "name": "Insecure remote MCP",
+            "enabled": True,
+            "config": {"transport": "streamable_http", "endpoint": "http://example.com/mcp"},
+        })
+        assert created.status_code == 201, created.text
+        response = client.post(f"/api/integrations/mcp/{created.json()['id']}/connect")
+    assert response.status_code == 422
+    assert "must use HTTPS" in response.json()["detail"]
